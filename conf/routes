@@ -1,0 +1,88 @@
+# ─── conf/routes ─────────────────────────────────────────────────────────────
+# Auris API routes
+# CORS preflight is handled by play.filters.cors.CORSFilter (configured in application.conf)
+# All API routes are under /api
+
+# ─── Auth ─────────────────────────────────────────────────────────────────────
+
+POST    /api/auth/sign-in               co.auris.controllers.AuthController.signIn
+POST    /api/auth/sign-up               co.auris.controllers.AuthController.signUp
+POST    /api/auth/refresh               co.auris.controllers.AuthController.refresh
+POST    /api/auth/sign-out              co.auris.controllers.AuthController.signOut
+POST    /api/auth/sign-out-all          co.auris.controllers.AuthController.signOutAll
+GET     /api/auth/me                    co.auris.controllers.AuthController.me
+POST    /api/auth/verify-email          co.auris.controllers.AuthController.verifyEmail
+POST    /api/auth/forgot-password       co.auris.controllers.AuthController.forgotPassword
+POST    /api/auth/reset-password        co.auris.controllers.AuthController.resetPassword
+
+# ─── Surgeons — public ────────────────────────────────────────────────────────
+
+GET     /api/surgeons                   co.auris.controllers.SurgeonController.search
+GET     /api/surgeons/:id               co.auris.controllers.SurgeonController.findById(id: java.util.UUID)
+POST    /api/surgeons/apply             co.auris.controllers.SurgeonController.apply
+
+# ─── Surgeons — protected (surgeon only) ─────────────────────────────────────
+
+PUT     /api/surgeons/profile           co.auris.controllers.SurgeonController.updateProfile
+POST    /api/surgeons/profile/avatar    co.auris.controllers.SurgeonController.uploadAvatar
+PUT     /api/surgeons/availability      co.auris.controllers.SurgeonController.updateAvailability
+GET     /api/surgeons/dashboard         co.auris.controllers.SurgeonController.dashboard
+
+# ─── Patients — protected (patient only) ─────────────────────────────────────
+
+PUT     /api/patients/onboarding        co.auris.controllers.PatientController.completeOnboarding
+GET     /api/patients/dashboard         co.auris.controllers.PatientController.dashboard
+GET     /api/patients/saved             co.auris.controllers.PatientController.savedSurgeons
+POST    /api/patients/saved/:surgeonId  co.auris.controllers.PatientController.saveSurgeon(surgeonId: java.util.UUID)
+DELETE  /api/patients/saved/:surgeonId  co.auris.controllers.PatientController.unsaveSurgeon(surgeonId: java.util.UUID)
+
+# ─── Enquiries ────────────────────────────────────────────────────────────────
+
+POST    /api/enquiries                  co.auris.controllers.BookingController.createEnquiry
+GET     /api/enquiries                  co.auris.controllers.BookingController.listEnquiries
+PUT     /api/enquiries/:id/accept       co.auris.controllers.BookingController.acceptEnquiry(id: java.util.UUID)
+PUT     /api/enquiries/:id/decline      co.auris.controllers.BookingController.declineEnquiry(id: java.util.UUID)
+
+# ─── Bookings ─────────────────────────────────────────────────────────────────
+
+POST    /api/bookings                   co.auris.controllers.BookingController.createBooking
+GET     /api/bookings                   co.auris.controllers.BookingController.listBookings
+GET     /api/bookings/:id               co.auris.controllers.BookingController.findBooking(id: java.util.UUID)
+PUT     /api/bookings/:id/cancel        co.auris.controllers.BookingController.cancelBooking(id: java.util.UUID)
+
+# ─── Reviews ──────────────────────────────────────────────────────────────────
+
+POST    /api/reviews                    co.auris.controllers.BookingController.createReview
+GET     /api/surgeons/:id/reviews       co.auris.controllers.SurgeonController.reviews(id: java.util.UUID)
+
+# ─── Messages (not yet implemented) ──────────────────────────────────────────
+# GET     /api/messages                   co.auris.controllers.MessageController.inbox
+# POST    /api/messages                   co.auris.controllers.MessageController.send
+# GET     /api/messages/:userId           co.auris.controllers.MessageController.thread(userId: java.util.UUID)
+# PUT     /api/messages/:id/read          co.auris.controllers.MessageController.markRead(id: java.util.UUID)
+
+# ─── Admin ────────────────────────────────────────────────────────────────────
+
+GET     /api/admin/applications                     co.auris.controllers.AdminController.listApplications
+GET     /api/admin/applications/:id                 co.auris.controllers.AdminController.getApplication(id: java.util.UUID)
+PUT     /api/admin/applications/:id/approve         co.auris.controllers.AdminController.approveApplication(id: java.util.UUID)
+PUT     /api/admin/applications/:id/reject          co.auris.controllers.AdminController.rejectApplication(id: java.util.UUID)
+PUT     /api/admin/applications/:id/request-info    co.auris.controllers.AdminController.requestMoreInfo(id: java.util.UUID)
+GET     /api/admin/surgeons                         co.auris.controllers.AdminController.listActiveSurgeons
+PUT     /api/admin/surgeons/:id/suspend             co.auris.controllers.AdminController.suspendSurgeon(id: java.util.UUID)
+GET     /api/admin/analytics                        co.auris.controllers.AdminController.analytics
+
+# ─── Health check ─────────────────────────────────────────────────────────────
+
+GET     /api/health                     co.auris.controllers.HealthController.check
+
+# ─── Catch-all (SPA fallback — remove if Vite is on a separate origin) ────────
+# GET     /*path                        co.auris.controllers.SpaController.index(path: String)
+
+
+
+
+
+
+
+
