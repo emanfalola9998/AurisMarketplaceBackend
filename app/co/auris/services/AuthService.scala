@@ -50,11 +50,12 @@ case class TokenPair(
 
 @Singleton
 class AuthService @Inject() (
-                              userRepository:    UserRepository,
-                              patientRepository: PatientRepository,
-                              surgeonRepository: SurgeonRepository,
-                              jwtService:        JwtService,
-                              config:            Configuration
+                              userRepository:      UserRepository,
+                              patientRepository:   PatientRepository,
+                              surgeonRepository:   SurgeonRepository,
+                              jwtService:          JwtService,
+                              notificationService: NotificationService,
+                              config:              Configuration
                             )(implicit ec: ExecutionContext) {
 
   private val bcryptRounds: Int = config.get[Int]("auris.bcrypt.rounds")
@@ -112,9 +113,15 @@ class AuthService @Inject() (
               case UserRole.Admin   => Future.successful(())
             }
 
-            profileFuture.map { _ =>
-              val accessToken = jwtService.generateAccessToken(user.id, user.role)
-              Right((user, TokenPair(accessToken, rawRefresh, jwtService.accessTokenExpiresIn)))
+            profileFuture.flatMap { _ =>
+              val verificationToken = jwtService.generateRefreshTokenRaw()
+              userRepository.createEmailVerification(user.id, verificationToken, 86400L)
+                .flatMap(_ => notificationService.sendEmailVerification(user.email, verificationToken))
+                .recover { case _ => () }
+                .map { _ =>
+                  val accessToken = jwtService.generateAccessToken(user.id, user.role)
+                  Right((user, TokenPair(accessToken, rawRefresh, jwtService.accessTokenExpiresIn)))
+                }
             }
           }
           .recover { case ex =>
@@ -177,7 +184,11 @@ class AuthService @Inject() (
       case Some(user) =>
         val rawToken = jwtService.generateRefreshTokenRaw() // reuse the random generator
         val tokenHash = hashToken(rawToken)
-        userRepository.createPasswordReset(user.id, tokenHash, 3600L).map(_ => Some(rawToken))
+        userRepository.createPasswordReset(user.id, tokenHash, 3600L).flatMap { _ =>
+          notificationService.sendPasswordReset(user.email, rawToken)
+            .recover { case _ => () }
+            .map(_ => Some(rawToken))
+        }
     }
 
   def completePasswordReset(

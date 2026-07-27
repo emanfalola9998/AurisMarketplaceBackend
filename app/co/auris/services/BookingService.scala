@@ -3,7 +3,7 @@
 package co.auris.services
 
 import co.auris.models._
-import co.auris.repositories.{BookingRepository, PatientRepository, SurgeonRepository}
+import co.auris.repositories.{BookingRepository, PatientRepository, SurgeonRepository, UserRepository}
 
 import java.time.{LocalDate, LocalTime, OffsetDateTime}
 import java.util.UUID
@@ -24,10 +24,14 @@ object BookingError {
 
 @Singleton
 class BookingService @Inject() (
-                                 bookingRepository: BookingRepository,
-                                 patientRepository: PatientRepository,
-                                 surgeonRepository: SurgeonRepository
+                                 bookingRepository:   BookingRepository,
+                                 patientRepository:   PatientRepository,
+                                 surgeonRepository:   SurgeonRepository,
+                                 userRepository:      UserRepository,
+                                 notificationService: NotificationService
                                )(implicit ec: ExecutionContext) {
+
+  private def notify(f: => Future[Unit]): Future[Unit] = f.recover { case _ => () }
 
   // ─── Enquiries ─────────────────────────────────────────────────────────────
 
@@ -58,7 +62,14 @@ class BookingService @Inject() (
             patient.id, surgeonId, procedureInterest, goals,
             previousSurgery, previousDetails, preferredDate, preferredTime,
             consultationType, fee, heardAbout
-          ).map(e => Right(e))
+          ).flatMap { e =>
+            notify(
+              userRepository.findById(surgeon.userId).flatMap {
+                case Some(u) => notificationService.sendEnquiryReceived(u.email)
+                case None    => Future.successful(())
+              }
+            ).map(_ => Right(e))
+          }
       }
     } yield result
 
@@ -96,9 +107,20 @@ class BookingService @Inject() (
         case (_, Some(e)) =>
           val newStatus = if (accept) EnquiryStatus.Confirmed else EnquiryStatus.Declined
           bookingRepository.updateEnquiryStatus(e.id, newStatus, notes).flatMap { _ =>
-            bookingRepository.findEnquiryById(e.id).map {
-              case None    => Left(BookingError.NotFound)
-              case Some(updated) => Right(updated)
+            notify(
+              patientRepository.findById(e.patientId).flatMap {
+                case Some(p) =>
+                  userRepository.findById(p.userId).flatMap {
+                    case Some(u) => notificationService.sendEnquiryResponded(u.email, accept)
+                    case None    => Future.successful(())
+                  }
+                case None => Future.successful(())
+              }
+            ).flatMap { _ =>
+              bookingRepository.findEnquiryById(e.id).map {
+                case None    => Left(BookingError.NotFound)
+                case Some(updated) => Right(updated)
+              }
             }
           }
       }
@@ -128,7 +150,18 @@ class BookingService @Inject() (
           bookingRepository.createBooking(
             enquiryId, patient.id, surgeonId,
             consultationType, scheduledAt, durationMinutes, fee
-          ).map(b => Right(b))
+          ).flatMap { b =>
+            notify(
+              for {
+                patientUserOpt <- userRepository.findById(patient.userId)
+                surgeonUserOpt <- userRepository.findById(surgeon.userId)
+                _ <- (patientUserOpt, surgeonUserOpt) match {
+                  case (Some(pu), Some(su)) => notificationService.sendBookingConfirmed(pu.email, su.email)
+                  case _                    => Future.successful(())
+                }
+              } yield ()
+            ).map(_ => Right(b))
+          }
       }
     } yield result
 
