@@ -73,6 +73,10 @@ GET     /api/admin/surgeons                         co.auris.controllers.AdminCo
 PUT     /api/admin/surgeons/:id/suspend             co.auris.controllers.AdminController.suspendSurgeon(id: java.util.UUID)
 GET     /api/admin/analytics                        co.auris.controllers.AdminController.analytics
 
+# ─── Uploads (local storage) ──────────────────────────────────────────────────
+
+GET     /uploads/*file                  co.auris.controllers.UploadsController.serve(file: String)
+
 # ─── Health check ─────────────────────────────────────────────────────────────
 
 GET     /api/health                     co.auris.controllers.HealthController.check

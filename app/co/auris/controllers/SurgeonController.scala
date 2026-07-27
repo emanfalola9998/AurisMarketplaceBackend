@@ -5,7 +5,7 @@ package co.auris.controllers
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
 import co.auris.repositories.{NewAvailabilitySlot, SurgeonAvailabilityRepository, SurgeonRepository}
-import co.auris.services.{SurgeonError, SurgeonService}
+import co.auris.services.{StorageError, StorageService, SurgeonError, SurgeonService}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -20,7 +20,8 @@ class SurgeonController @Inject() (
                                     authAction:                  JwtAuthAction,
                                     surgeonService:              SurgeonService,
                                     surgeonRepository:           SurgeonRepository,
-                                    availabilityRepository:      SurgeonAvailabilityRepository
+                                    availabilityRepository:      SurgeonAvailabilityRepository,
+                                    storageService:              StorageService
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
@@ -149,7 +150,6 @@ class SurgeonController @Inject() (
   }
 
   // ─── POST /api/surgeons/profile/avatar ───────────────────────────────────
-  // Multipart file upload — stub until storage is wired
 
   def uploadAvatar: Action[MultipartFormData[play.api.libs.Files.TemporaryFile]] =
     authAction(parse.multipartFormData).async { implicit request =>
@@ -157,9 +157,23 @@ class SurgeonController @Inject() (
         request.body.file("avatar") match {
           case None =>
             Future.successful(BadRequest(apiError("BAD_REQUEST", "No file provided.")))
-          case Some(_) =>
-            // TODO: wire to StorageService — upload to S3/local, then call surgeonRepository.updateAvatar
-            Future.successful(Ok(Json.obj("avatarUrl" -> "/uploads/placeholder.jpg")))
+
+          case Some(filePart) =>
+            storageService.store(filePart.ref, filePart.filename, filePart.contentType, "avatars").flatMap {
+              case Left(StorageError.UnsupportedType) =>
+                Future.successful(BadRequest(apiError("UNSUPPORTED_TYPE", "File type not allowed.")))
+              case Left(StorageError.FileTooLarge) =>
+                Future.successful(BadRequest(apiError("FILE_TOO_LARGE", "File exceeds the maximum allowed size.")))
+              case Right(avatarUrl) =>
+                surgeonRepository.findByUserId(request.userId).flatMap {
+                  case None =>
+                    Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon profile not found.")))
+                  case Some(surgeon) =>
+                    surgeonRepository.updateAvatar(surgeon.id, avatarUrl).map { _ =>
+                      Ok(Json.obj("avatarUrl" -> avatarUrl))
+                    }
+                }
+            }
         }
       }
     }
