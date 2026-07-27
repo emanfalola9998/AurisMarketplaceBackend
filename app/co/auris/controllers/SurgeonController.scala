@@ -4,21 +4,23 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
-import co.auris.repositories.SurgeonRepository
+import co.auris.repositories.{NewAvailabilitySlot, SurgeonAvailabilityRepository, SurgeonRepository}
 import co.auris.services.{SurgeonError, SurgeonService}
 import play.api.libs.json._
 import play.api.mvc._
 
+import java.time.LocalTime
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class SurgeonController @Inject() (
-                                    cc:                ControllerComponents,
-                                    authAction:        JwtAuthAction,
-                                    surgeonService:    SurgeonService,
-                                    surgeonRepository: SurgeonRepository
+                                    cc:                          ControllerComponents,
+                                    authAction:                  JwtAuthAction,
+                                    surgeonService:              SurgeonService,
+                                    surgeonRepository:           SurgeonRepository,
+                                    availabilityRepository:      SurgeonAvailabilityRepository
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
@@ -163,12 +165,48 @@ class SurgeonController @Inject() (
     }
 
   // ─── PUT /api/surgeons/availability ──────────────────────────────────────
-  // Stub — full availability management in next iteration
+  // Replaces the surgeon's entire weekly schedule with the given slots.
 
   def updateAvailability: Action[JsValue] = authAction(parse.json).async { implicit request =>
     request.requireSurgeon {
-      // TODO: wire to SurgeonAvailabilityRepository
-      Future.successful(Ok(Json.obj("message" -> "Availability updated.")))
+      val rawSlots = (request.body \ "slots").asOpt[List[JsValue]].getOrElse(Nil)
+
+      val parsed: Either[String, List[NewAvailabilitySlot]] =
+        rawSlots.foldLeft[Either[String, List[NewAvailabilitySlot]]](Right(Nil)) {
+          case (Left(err), _) => Left(err)
+          case (Right(acc), slot) =>
+            val result = for {
+              dayOfWeek <- (slot \ "dayOfWeek").asOpt[Short].filter(d => d >= 1 && d <= 7)
+                             .toRight("each slot needs dayOfWeek between 1 (Mon) and 7 (Sun)")
+              startTime <- (slot \ "startTime").asOpt[String].flatMap(s => scala.util.Try(LocalTime.parse(s)).toOption)
+                             .toRight("each slot needs a valid startTime (HH:mm)")
+              endTime   <- (slot \ "endTime").asOpt[String].flatMap(s => scala.util.Try(LocalTime.parse(s)).toOption)
+                             .toRight("each slot needs a valid endTime (HH:mm)")
+              _         <- Either.cond(startTime.isBefore(endTime), (), "startTime must be before endTime")
+            } yield NewAvailabilitySlot(
+              dayOfWeek     = dayOfWeek,
+              startTime     = startTime,
+              endTime       = endTime,
+              bufferMinutes = (slot \ "bufferMinutes").asOpt[Short].getOrElse(30.toShort),
+              isActive      = (slot \ "isActive").asOpt[Boolean].getOrElse(true)
+            )
+            result.map(s => acc :+ s)
+        }
+
+      parsed match {
+        case Left(err) =>
+          Future.successful(BadRequest(apiError("VALIDATION_ERROR", err)))
+
+        case Right(slots) =>
+          surgeonRepository.findByUserId(request.userId).flatMap {
+            case None =>
+              Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon profile not found.")))
+            case Some(surgeon) =>
+              availabilityRepository.replaceForSurgeon(surgeon.id, slots).map { updated =>
+                Ok(Json.obj("items" -> Json.toJson(updated)))
+              }
+          }
+      }
     }
   }
 

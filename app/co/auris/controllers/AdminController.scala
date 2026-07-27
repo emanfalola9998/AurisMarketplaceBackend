@@ -4,7 +4,7 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
-import co.auris.repositories.{BookingRepository, SurgeonRepository, UserRepository}
+import co.auris.repositories.{AuditLogRepository, BookingRepository, SurgeonRepository, UserRepository}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -14,11 +14,12 @@ import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class AdminController @Inject() (
-                                  cc:                ControllerComponents,
-                                  authAction:        JwtAuthAction,
-                                  surgeonRepository: SurgeonRepository,
-                                  userRepository:    UserRepository,
-                                  bookingRepository: BookingRepository
+                                  cc:                  ControllerComponents,
+                                  authAction:          JwtAuthAction,
+                                  surgeonRepository:   SurgeonRepository,
+                                  userRepository:      UserRepository,
+                                  bookingRepository:   BookingRepository,
+                                  auditLogRepository:  AuditLogRepository
                                 )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
@@ -44,23 +45,19 @@ class AdminController @Inject() (
 
   def getApplication(id: UUID): Action[AnyContent] = authAction.async { implicit request =>
     request.requireAdmin {
-      // Find application by ID then join to surgeon profile
-      surgeonRepository.listApplicationsByStatus(ApplicationStatus.Pending).flatMap { apps =>
-        apps.find(_.id == id) match {
-          case None =>
-            // Check other statuses
-            Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
+      surgeonRepository.findApplicationById(id).flatMap {
+        case None =>
+          Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
 
-          case Some(app) =>
-            surgeonRepository.findById(app.surgeonId).map {
-              case None         => NotFound(apiError("NOT_FOUND", "Surgeon profile not found."))
-              case Some(surgeon) =>
-                Ok(Json.obj(
-                  "application" -> Json.toJson(app),
-                  "surgeon"     -> Json.toJson(surgeon)
-                ))
-            }
-        }
+        case Some(app) =>
+          surgeonRepository.findById(app.surgeonId).map {
+            case None         => NotFound(apiError("NOT_FOUND", "Surgeon profile not found."))
+            case Some(surgeon) =>
+              Ok(Json.obj(
+                "application" -> Json.toJson(app),
+                "surgeon"     -> Json.toJson(surgeon)
+              ))
+          }
       }
     }
   }
@@ -69,8 +66,7 @@ class AdminController @Inject() (
 
   def approveApplication(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
     request.requireAdmin {
-      // 1. Find all applications (across all statuses) to locate this one
-      findApplicationById(id).flatMap {
+      surgeonRepository.findApplicationById(id).flatMap {
         case None =>
           Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
 
@@ -94,7 +90,7 @@ class AdminController @Inject() (
       val notes = (request.body \ "notes").asOpt[String]
       val flags = (request.body \ "flags").asOpt[List[String]].getOrElse(Nil)
 
-      findApplicationById(id).flatMap {
+      surgeonRepository.findApplicationById(id).flatMap {
         case None =>
           Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
 
@@ -120,7 +116,7 @@ class AdminController @Inject() (
       val notes = (request.body \ "notes").asOpt[String]
       val flags = (request.body \ "flags").asOpt[List[String]].getOrElse(Nil)
 
-      findApplicationById(id).flatMap {
+      surgeonRepository.findApplicationById(id).flatMap {
         case None =>
           Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
 
@@ -193,25 +189,13 @@ class AdminController @Inject() (
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
 
-  private def findApplicationById(id: UUID): Future[Option[SurgeonApplication]] = {
-    val allStatuses = ApplicationStatus.values.toList
-    allStatuses.foldLeft(Future.successful(Option.empty[SurgeonApplication])) { (accFuture, status) =>
-      accFuture.flatMap {
-        case Some(found) => Future.successful(Some(found))
-        case None =>
-          surgeonRepository.listApplicationsByStatus(status).map(_.find(_.id == id))
-      }
-    }
-  }
-
   private def logAudit(
                         actorId:    UUID,
                         action:     String,
                         targetType: String,
                         targetId:   UUID
-                      ): Future[Unit] =
-    // TODO: wire to AuditLogRepository
-    Future.successful(())
+                      )(implicit request: RequestHeader): Future[Unit] =
+    auditLogRepository.log(actorId, action, targetType, targetId, ipAddress = Some(request.remoteAddress)).map(_ => ())
 
   private def apiError(code: String, message: String): JsValue =
     Json.toJson(ApiError(code, message))

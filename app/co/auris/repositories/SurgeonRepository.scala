@@ -158,6 +158,9 @@ class SurgeonRepository @Inject() (
     db.run((SurgeonApplications += app).map(_ => app))
   }
 
+  def findApplicationById(id: UUID): Future[Option[SurgeonApplication]] =
+    db.run(SurgeonApplications.filter(_.id === id).result.headOption)
+
   def findApplicationBySurgeonId(surgeonId: UUID): Future[Option[SurgeonApplication]] =
     db.run(
       SurgeonApplications

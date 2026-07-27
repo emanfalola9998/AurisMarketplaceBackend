@@ -11,6 +11,7 @@ package co.auris.db
 
 import co.auris.models._
 import AurisPostgresProfile.api._
+import play.api.libs.json.JsValue
 import java.time.{LocalDate, LocalTime, OffsetDateTime}
 import java.util.UUID
 
@@ -387,3 +388,20 @@ class PortfolioTable(tag: Tag) extends Table[PortfolioItem](tag, "surgeon_portfo
 }
 
 object Portfolio extends TableQuery(new PortfolioTable(_))
+
+// ─── audit_log ────────────────────────────────────────────────────────────────
+
+class AuditLogTable(tag: Tag) extends Table[AuditLogEntry](tag, "audit_log") {
+  def id         = column[UUID]                   ("id",          O.PrimaryKey)
+  def actorId    = column[UUID]                   ("actor_id")
+  def action     = column[String]                 ("action")
+  def targetType = column[String]                 ("target_type")
+  def targetId   = column[UUID]                   ("target_id")
+  def metadata   = column[Option[JsValue]]        ("metadata")
+  def ipAddress  = column[Option[String]]         ("ip_address")
+  def createdAt  = column[OffsetDateTime]         ("created_at")
+
+  def * = (id, actorId, action, targetType, targetId, metadata, ipAddress, createdAt).mapTo[AuditLogEntry]
+}
+
+object AuditLog extends TableQuery(new AuditLogTable(_))

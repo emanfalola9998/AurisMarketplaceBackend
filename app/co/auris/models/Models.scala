@@ -204,6 +204,10 @@ case class SurgeonAvailability(
                                 isActive:      Boolean  = true
                               )
 
+object SurgeonAvailability {
+  implicit val format: OFormat[SurgeonAvailability] = Json.format[SurgeonAvailability]
+}
+
 // ─── Surgeon blocked slot ─────────────────────────────────────────────────────
 
 case class SurgeonBlockedSlot(
@@ -372,6 +376,10 @@ case class AuditLogEntry(
                           ipAddress:  Option[String]                     = None,
                           createdAt:  OffsetDateTime
                         )
+
+object AuditLogEntry {
+  implicit val format: OFormat[AuditLogEntry] = Json.format[AuditLogEntry]
+}
 
 // ─── API request/response models ──────────────────────────────────────────────
 // These are the shapes going over the wire — separate from DB models.
