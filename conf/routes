@@ -55,11 +55,12 @@ PUT     /api/bookings/:id/cancel        co.auris.controllers.BookingController.c
 POST    /api/reviews                    co.auris.controllers.BookingController.createReview
 GET     /api/surgeons/:id/reviews       co.auris.controllers.SurgeonController.reviews(id: java.util.UUID)
 
-# ─── Messages (not yet implemented) ──────────────────────────────────────────
-# GET     /api/messages                   co.auris.controllers.MessageController.inbox
-# POST    /api/messages                   co.auris.controllers.MessageController.send
-# GET     /api/messages/:userId           co.auris.controllers.MessageController.thread(userId: java.util.UUID)
-# PUT     /api/messages/:id/read          co.auris.controllers.MessageController.markRead(id: java.util.UUID)
+# ─── Messages ─────────────────────────────────────────────────────────────────
+
+GET     /api/messages                   co.auris.controllers.MessageController.inbox
+POST    /api/messages                   co.auris.controllers.MessageController.send
+GET     /api/messages/:userId           co.auris.controllers.MessageController.thread(userId: java.util.UUID)
+PUT     /api/messages/:id/read          co.auris.controllers.MessageController.markRead(id: java.util.UUID)
 
 # ─── Admin ────────────────────────────────────────────────────────────────────
 

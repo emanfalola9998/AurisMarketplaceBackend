@@ -314,6 +314,16 @@ object Message {
   implicit val format: OFormat[Message] = Json.format[Message]
 }
 
+case class ConversationSummary(
+                                partnerId:   UUID,
+                                lastMessage: Message,
+                                unreadCount: Int
+                              )
+
+object ConversationSummary {
+  implicit val format: OFormat[ConversationSummary] = Json.format[ConversationSummary]
+}
+
 // ─── Notification ─────────────────────────────────────────────────────────────
 
 case class Notification(
