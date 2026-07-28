@@ -4,7 +4,7 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
-import co.auris.services.{BookingError, BookingService}
+import co.auris.services.{BookingError, BookingService, BookingWithPayment}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -139,8 +139,11 @@ class BookingController @Inject() (
               NotFound(apiError("NOT_FOUND", "Surgeon not found."))
             case Left(other) =>
               InternalServerError(apiError("INTERNAL_ERROR", other.toString))
-            case Right(booking) =>
-              Created(Json.toJson(booking))
+            case Right(BookingWithPayment(booking, clientSecret)) =>
+              Created(Json.obj(
+                "booking"            -> Json.toJson(booking),
+                "stripeClientSecret" -> clientSecret
+              ))
           }
       }
     }

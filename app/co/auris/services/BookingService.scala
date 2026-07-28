@@ -22,13 +22,16 @@ object BookingError {
   case class  Unexpected(msg: String) extends BookingError
 }
 
+final case class BookingWithPayment(booking: Booking, stripeClientSecret: String)
+
 @Singleton
 class BookingService @Inject() (
                                  bookingRepository:   BookingRepository,
                                  patientRepository:   PatientRepository,
                                  surgeonRepository:   SurgeonRepository,
                                  userRepository:      UserRepository,
-                                 notificationService: NotificationService
+                                 notificationService: NotificationService,
+                                 paymentService:      PaymentService
                                )(implicit ec: ExecutionContext) {
 
   private def notify(f: => Future[Unit]): Future[Unit] = f.recover { case _ => () }
@@ -128,6 +131,11 @@ class BookingService @Inject() (
 
   // ─── Bookings ──────────────────────────────────────────────────────────────
 
+  /** Creates a Pending booking and a matching Stripe PaymentIntent for its fee.
+   *  The booking stays Pending — and the parties are not notified — until
+   *  confirmBookingPayment() flips it to Confirmed via the payment_intent.succeeded
+   *  webhook, so nobody is told a consultation is "confirmed" before it's paid for.
+   */
   def createBooking(
                      patientUserId:    UUID,
                      surgeonId:        UUID,
@@ -135,7 +143,7 @@ class BookingService @Inject() (
                      consultationType: ConsultationType,
                      scheduledAt:      OffsetDateTime,
                      durationMinutes:  Short
-                   ): Future[Either[BookingError, Booking]] =
+                   ): Future[Either[BookingError, BookingWithPayment]] =
     for {
       patientOpt <- patientRepository.findByUserId(patientUserId)
       surgeonOpt <- surgeonRepository.findById(surgeonId)
@@ -147,23 +155,55 @@ class BookingService @Inject() (
             case ConsultationType.InClinic => surgeon.consultFeeClinic.getOrElse(BigDecimal(0))
             case ConsultationType.Virtual  => surgeon.consultFeeVirtual.getOrElse(BigDecimal(0))
           }
-          bookingRepository.createBooking(
-            enquiryId, patient.id, surgeonId,
-            consultationType, scheduledAt, durationMinutes, fee
-          ).flatMap { b =>
-            notify(
-              for {
-                patientUserOpt <- userRepository.findById(patient.userId)
-                surgeonUserOpt <- userRepository.findById(surgeon.userId)
-                _ <- (patientUserOpt, surgeonUserOpt) match {
-                  case (Some(pu), Some(su)) => notificationService.sendBookingConfirmed(pu.email, su.email)
-                  case _                    => Future.successful(())
-                }
-              } yield ()
-            ).map(_ => Right(b))
-          }
+          for {
+            booking        <- bookingRepository.createBooking(
+                                 enquiryId, patient.id, surgeonId,
+                                 consultationType, scheduledAt, durationMinutes, fee
+                               )
+            patientUserOpt <- userRepository.findById(patient.userId)
+            intentResult   <- paymentService.createPaymentIntent(booking.id, fee, patientUserOpt.map(_.email))
+          } yield Right(BookingWithPayment(booking, intentResult.clientSecret))
       }
     } yield result
+
+  /** Called from the Stripe webhook once payment_intent.succeeded fires:
+   *  marks the booking Confirmed + paid, then notifies both parties.
+   *
+   *  Stripe explicitly guarantees only at-least-once webhook delivery, so the
+   *  same event can genuinely arrive twice — guard on the booking's current
+   *  status so a redelivery doesn't send a second "confirmed" email.
+   */
+  def confirmBookingPayment(paymentIntentId: String, bookingId: UUID): Future[Either[BookingError, Booking]] =
+    bookingRepository.findBookingById(bookingId).flatMap {
+      case None => Future.successful(Left(BookingError.NotFound))
+      case Some(existing) if existing.status == BookingStatus.Confirmed =>
+        Future.successful(Right(existing))
+      case Some(_) =>
+        bookingRepository.markBookingPaid(bookingId, paymentIntentId).flatMap { _ =>
+          bookingRepository.findBookingById(bookingId).flatMap {
+            case None => Future.successful(Left(BookingError.NotFound))
+            case Some(b) =>
+              notify(
+                for {
+                  patientOpt     <- patientRepository.findById(b.patientId)
+                  surgeonOpt     <- surgeonRepository.findById(b.surgeonId)
+                  patientUserOpt <- patientOpt match {
+                                       case Some(p) => userRepository.findById(p.userId)
+                                       case None    => Future.successful(None)
+                                     }
+                  surgeonUserOpt <- surgeonOpt match {
+                                       case Some(s) => userRepository.findById(s.userId)
+                                       case None    => Future.successful(None)
+                                     }
+                  _ <- (patientUserOpt, surgeonUserOpt) match {
+                         case (Some(pu), Some(su)) => notificationService.sendBookingConfirmed(pu.email, su.email)
+                         case _                    => Future.successful(())
+                       }
+                } yield ()
+              ).map(_ => Right(b))
+          }
+        }
+    }
 
   def listBookings(userId: UUID, role: UserRole, status: Option[BookingStatus]): Future[List[Booking]] =
     role match {

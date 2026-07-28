@@ -66,6 +66,9 @@ lazy val root = (project in file("."))
 
       "com.beachape" %% "enumeratum"            % "1.7.3",
       "com.beachape" %% "enumeratum-play-json"  % "1.7.3",
+
+      // Stripe — payment processing
+      "com.stripe"    %  "stripe-java"           % "33.1.1",
     ),
 
     // ── Routes ──────────────────────────────────────────────────────────────

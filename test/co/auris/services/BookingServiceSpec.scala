@@ -28,6 +28,7 @@ class BookingServiceSpec extends AnyWordSpec
   private var surgeonRepository: SurgeonRepository = _
   private var userRepository:    UserRepository    = _
   private var notificationService: NotificationService = _
+  private var paymentService:    PaymentService    = _
   private var service: BookingService = _
 
   override def beforeEach(): Unit = {
@@ -36,13 +37,16 @@ class BookingServiceSpec extends AnyWordSpec
     surgeonRepository   = mock[SurgeonRepository]
     userRepository       = mock[UserRepository]
     notificationService = mock[NotificationService]
-    service = new BookingService(bookingRepository, patientRepository, surgeonRepository, userRepository, notificationService)
+    paymentService       = mock[PaymentService]
+    service = new BookingService(bookingRepository, patientRepository, surgeonRepository, userRepository, notificationService, paymentService)
 
     // Notification sends are best-effort throughout — default them to succeed
     // so tests that don't care about notifications don't need to stub them.
     when(notificationService.sendEnquiryReceived(any[String])).thenReturn(Future.successful(()))
     when(notificationService.sendEnquiryResponded(any[String], any[Boolean])).thenReturn(Future.successful(()))
     when(notificationService.sendBookingConfirmed(any[String], any[String])).thenReturn(Future.successful(()))
+    when(paymentService.createPaymentIntent(any[UUID], any[BigDecimal], any[Option[String]]))
+      .thenReturn(Future.successful(PaymentIntentResult("pi_test_123", "pi_test_123_secret_abc")))
     ()
   }
 
@@ -272,43 +276,114 @@ class BookingServiceSpec extends AnyWordSpec
       result mustBe Left(BookingError.SurgeonNotFound)
     }
 
-    "create the booking and notify both parties" in {
+    "create a Pending booking, open a Stripe PaymentIntent for its fee, and return the client secret" in {
       val patient = Fixtures.patientProfile()
       val surgeon = Fixtures.surgeonProfile()
       val scheduledAt = OffsetDateTime.now().plusDays(14)
+      val patientUser = Fixtures.user()
+      val createdBooking = Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id)
       when(patientRepository.findByUserId(any[UUID])).thenReturn(Future.successful(Some(patient)))
       when(surgeonRepository.findById(surgeon.id)).thenReturn(Future.successful(Some(surgeon)))
-      when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
-      when(userRepository.findById(surgeon.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
+      when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(patientUser)))
       when(bookingRepository.createBooking(
         any[Option[UUID]], eqTo(patient.id), eqTo(surgeon.id), eqTo(ConsultationType.InClinic), eqTo(scheduledAt), eqTo(60.toShort), any[BigDecimal]
-      )).thenReturn(Future.successful(Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id)))
+      )).thenReturn(Future.successful(createdBooking))
+      when(paymentService.createPaymentIntent(eqTo(createdBooking.id), any[BigDecimal], eqTo(Some(patientUser.email))))
+        .thenReturn(Future.successful(PaymentIntentResult("pi_abc", "pi_abc_secret_xyz")))
 
       val result = service.createBooking(
         UUID.randomUUID(), surgeon.id, None, ConsultationType.InClinic, scheduledAt, 60
       ).futureValue
 
-      result mustBe a[Right[_, _]]
-      verify(notificationService).sendBookingConfirmed(any[String], any[String])
+      result mustBe Right(BookingWithPayment(createdBooking, "pi_abc_secret_xyz"))
+      verify(paymentService).createPaymentIntent(eqTo(createdBooking.id), any[BigDecimal], eqTo(Some(patientUser.email)))
     }
 
-    "still succeed even if notifying the parties fails" in {
+    "notifies no one yet — the booking isn't paid for" in {
       val patient = Fixtures.patientProfile()
       val surgeon = Fixtures.surgeonProfile()
       when(patientRepository.findByUserId(any[UUID])).thenReturn(Future.successful(Some(patient)))
       when(surgeonRepository.findById(surgeon.id)).thenReturn(Future.successful(Some(surgeon)))
       when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
-      when(userRepository.findById(surgeon.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
       when(bookingRepository.createBooking(
         any[Option[UUID]], any[UUID], any[UUID], any[ConsultationType], any[OffsetDateTime], any[Short], any[BigDecimal]
       )).thenReturn(Future.successful(Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id)))
-      when(notificationService.sendBookingConfirmed(any[String], any[String])).thenReturn(Future.failed(new RuntimeException("SMTP down")))
 
-      val result = service.createBooking(
+      service.createBooking(
         UUID.randomUUID(), surgeon.id, None, ConsultationType.InClinic, OffsetDateTime.now(), 60
       ).futureValue
 
-      result mustBe a[Right[_, _]]
+      verify(notificationService, never).sendBookingConfirmed(any[String], any[String])
+    }
+  }
+
+  "confirmBookingPayment" should {
+    "mark the booking paid and notify both parties" in {
+      val patient = Fixtures.patientProfile()
+      val surgeon = Fixtures.surgeonProfile()
+      val pending = Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id, status = BookingStatus.Pending)
+      val confirmed = Fixtures.booking(id = pending.id, patientId = patient.id, surgeonId = surgeon.id, status = BookingStatus.Confirmed)
+      when(bookingRepository.markBookingPaid(pending.id, "pi_abc")).thenReturn(Future.successful(1))
+      when(bookingRepository.findBookingById(pending.id)).thenReturn(Future.successful(Some(pending)), Future.successful(Some(confirmed)))
+      when(patientRepository.findById(patient.id)).thenReturn(Future.successful(Some(patient)))
+      when(surgeonRepository.findById(surgeon.id)).thenReturn(Future.successful(Some(surgeon)))
+      when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
+      when(userRepository.findById(surgeon.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
+
+      val result = service.confirmBookingPayment("pi_abc", pending.id).futureValue
+
+      result mustBe Right(confirmed)
+      verify(bookingRepository).markBookingPaid(pending.id, "pi_abc")
+      verify(notificationService).sendBookingConfirmed(any[String], any[String])
+    }
+
+    "does nothing and skips re-notifying when the booking is already Confirmed (idempotent webhook redelivery)" in {
+      val booking = Fixtures.booking(status = BookingStatus.Confirmed)
+      when(bookingRepository.findBookingById(booking.id)).thenReturn(Future.successful(Some(booking)))
+
+      val result = service.confirmBookingPayment("pi_abc", booking.id).futureValue
+
+      result mustBe Right(booking)
+      verify(bookingRepository, never).markBookingPaid(any[UUID], any[String])
+      verify(notificationService, never).sendBookingConfirmed(any[String], any[String])
+    }
+
+    "fail with NotFound when the booking doesn't exist at all" in {
+      val bookingId = UUID.randomUUID()
+      when(bookingRepository.findBookingById(bookingId)).thenReturn(Future.successful(None))
+
+      val result = service.confirmBookingPayment("pi_abc", bookingId).futureValue
+
+      result mustBe Left(BookingError.NotFound)
+      verify(bookingRepository, never).markBookingPaid(any[UUID], any[String])
+    }
+
+    "fail with NotFound if the booking has vanished after being marked paid" in {
+      val bookingId = UUID.randomUUID()
+      val pending = Fixtures.booking(id = bookingId, status = BookingStatus.Pending)
+      when(bookingRepository.markBookingPaid(bookingId, "pi_abc")).thenReturn(Future.successful(1))
+      when(bookingRepository.findBookingById(bookingId)).thenReturn(Future.successful(Some(pending)), Future.successful(None))
+
+      val result = service.confirmBookingPayment("pi_abc", bookingId).futureValue
+
+      result mustBe Left(BookingError.NotFound)
+    }
+
+    "still succeed even if notifying the parties fails" in {
+      val patient = Fixtures.patientProfile()
+      val surgeon = Fixtures.surgeonProfile()
+      val pending = Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id, status = BookingStatus.Pending)
+      when(bookingRepository.markBookingPaid(pending.id, "pi_abc")).thenReturn(Future.successful(1))
+      when(bookingRepository.findBookingById(pending.id)).thenReturn(Future.successful(Some(pending)))
+      when(patientRepository.findById(patient.id)).thenReturn(Future.successful(Some(patient)))
+      when(surgeonRepository.findById(surgeon.id)).thenReturn(Future.successful(Some(surgeon)))
+      when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
+      when(userRepository.findById(surgeon.userId)).thenReturn(Future.successful(Some(Fixtures.user())))
+      when(notificationService.sendBookingConfirmed(any[String], any[String])).thenReturn(Future.failed(new RuntimeException("SMTP down")))
+
+      val result = service.confirmBookingPayment("pi_abc", pending.id).futureValue
+
+      result mustBe Right(pending)
     }
   }
 

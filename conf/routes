@@ -50,6 +50,11 @@ GET     /api/bookings                   co.auris.controllers.BookingController.l
 GET     /api/bookings/:id               co.auris.controllers.BookingController.findBooking(id: java.util.UUID)
 PUT     /api/bookings/:id/cancel        co.auris.controllers.BookingController.cancelBooking(id: java.util.UUID)
 
+# ─── Stripe ───────────────────────────────────────────────────────────────────
+# Unauthenticated — Stripe calls this directly; verified via webhook signature.
+
+POST    /api/stripe/webhook              co.auris.controllers.StripeWebhookController.handle
+
 # ─── Reviews ──────────────────────────────────────────────────────────────────
 
 POST    /api/reviews                    co.auris.controllers.BookingController.createReview
