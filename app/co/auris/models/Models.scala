@@ -138,6 +138,7 @@ object SurgeonProfile {
   implicit val writes: OWrites[SurgeonProfile] = sp => Json.obj(
     "id"                -> sp.id,
     "userId"            -> sp.userId,
+    "displayName"       -> sp.displayName,
     "title"             -> sp.title,
     "firstName"         -> sp.firstName,
     "lastName"          -> sp.lastName,
