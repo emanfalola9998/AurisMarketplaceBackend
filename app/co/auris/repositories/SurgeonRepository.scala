@@ -105,6 +105,27 @@ class SurgeonRepository @Inject() (
         .update((Some(avatarUrl), OffsetDateTime.now(ZoneOffset.UTC)))
     )
 
+  // ─── Billing ───────────────────────────────────────────────────────────────
+
+  def findByStripeCustomerId(customerId: String): Future[Option[SurgeonProfile]] =
+    db.run(SurgeonProfiles.filter(_.stripeCustomerId === customerId).result.headOption)
+
+  def setStripeCustomerId(id: UUID, customerId: String): Future[Int] =
+    db.run(
+      SurgeonProfiles
+        .filter(_.id === id)
+        .map(s => (s.stripeCustomerId, s.updatedAt))
+        .update((Some(customerId), OffsetDateTime.now(ZoneOffset.UTC)))
+    )
+
+  def setSubscriptionStatus(id: UUID, status: SubscriptionStatus, renewsAt: Option[OffsetDateTime]): Future[Int] =
+    db.run(
+      SurgeonProfiles
+        .filter(_.id === id)
+        .map(s => (s.subscriptionStatus, s.subscriptionRenewsAt, s.updatedAt))
+        .update((status, renewsAt, OffsetDateTime.now(ZoneOffset.UTC)))
+    )
+
   // ─── Search ────────────────────────────────────────────────────────────────
 
   def search(

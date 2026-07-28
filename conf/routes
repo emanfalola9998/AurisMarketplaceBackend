@@ -27,6 +27,7 @@ PUT     /api/surgeons/profile           co.auris.controllers.SurgeonController.u
 POST    /api/surgeons/profile/avatar    co.auris.controllers.SurgeonController.uploadAvatar
 PUT     /api/surgeons/availability      co.auris.controllers.SurgeonController.updateAvailability
 GET     /api/surgeons/dashboard         co.auris.controllers.SurgeonController.dashboard
+POST    /api/surgeons/membership/subscribe co.auris.controllers.BillingController.subscribeToMembership
 
 # ─── Patients — protected (patient only) ─────────────────────────────────────
 
@@ -77,6 +78,8 @@ PUT     /api/admin/applications/:id/request-info    co.auris.controllers.AdminCo
 GET     /api/admin/surgeons                         co.auris.controllers.AdminController.listActiveSurgeons
 PUT     /api/admin/surgeons/:id/suspend             co.auris.controllers.AdminController.suspendSurgeon(id: java.util.UUID)
 GET     /api/admin/analytics                        co.auris.controllers.AdminController.analytics
+GET     /api/admin/platform-fees                    co.auris.controllers.BillingController.listPlatformFees
+PUT     /api/admin/platform-fees/:id/mark-paid      co.auris.controllers.BillingController.markFeePaidOut(id: java.util.UUID)
 
 # ─── Uploads (local storage) ──────────────────────────────────────────────────
 

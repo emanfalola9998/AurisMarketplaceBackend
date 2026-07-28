@@ -29,6 +29,7 @@ class BookingServiceSpec extends AnyWordSpec
   private var userRepository:    UserRepository    = _
   private var notificationService: NotificationService = _
   private var paymentService:    PaymentService    = _
+  private var billingService:    BillingService    = _
   private var service: BookingService = _
 
   override def beforeEach(): Unit = {
@@ -38,7 +39,8 @@ class BookingServiceSpec extends AnyWordSpec
     userRepository       = mock[UserRepository]
     notificationService = mock[NotificationService]
     paymentService       = mock[PaymentService]
-    service = new BookingService(bookingRepository, patientRepository, surgeonRepository, userRepository, notificationService, paymentService)
+    billingService       = mock[BillingService]
+    service = new BookingService(bookingRepository, patientRepository, surgeonRepository, userRepository, notificationService, paymentService, billingService)
 
     // Notification sends are best-effort throughout — default them to succeed
     // so tests that don't care about notifications don't need to stub them.
@@ -47,6 +49,8 @@ class BookingServiceSpec extends AnyWordSpec
     when(notificationService.sendBookingConfirmed(any[String], any[String])).thenReturn(Future.successful(()))
     when(paymentService.createPaymentIntent(any[UUID], any[BigDecimal], any[Option[String]]))
       .thenReturn(Future.successful(PaymentIntentResult("pi_test_123", "pi_test_123_secret_abc")))
+    when(billingService.recordTransactionFee(any[UUID], any[UUID], any[BigDecimal]))
+      .thenReturn(Future.successful(()))
     ()
   }
 
@@ -335,9 +339,10 @@ class BookingServiceSpec extends AnyWordSpec
       result mustBe Right(confirmed)
       verify(bookingRepository).markBookingPaid(pending.id, "pi_abc")
       verify(notificationService).sendBookingConfirmed(any[String], any[String])
+      verify(billingService).recordTransactionFee(surgeon.id, pending.id, pending.fee)
     }
 
-    "does nothing and skips re-notifying when the booking is already Confirmed (idempotent webhook redelivery)" in {
+    "does nothing and skips re-notifying when the booking is already Confirmed (idempotent webhook redelivery), but still ensures the platform fee is recorded" in {
       val booking = Fixtures.booking(status = BookingStatus.Confirmed)
       when(bookingRepository.findBookingById(booking.id)).thenReturn(Future.successful(Some(booking)))
 
@@ -346,6 +351,7 @@ class BookingServiceSpec extends AnyWordSpec
       result mustBe Right(booking)
       verify(bookingRepository, never).markBookingPaid(any[UUID], any[String])
       verify(notificationService, never).sendBookingConfirmed(any[String], any[String])
+      verify(billingService).recordTransactionFee(booking.surgeonId, booking.id, booking.fee)
     }
 
     "fail with NotFound when the booking doesn't exist at all" in {

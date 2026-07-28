@@ -144,19 +144,23 @@ class SurgeonProfilesTable(tag: Tag) extends Table[SurgeonProfile](tag, "surgeon
   def rating            = column[BigDecimal]       ("rating")
   def reviewCount       = column[Int]              ("review_count")
   def consultationCount = column[Int]              ("consultation_count")
+  def stripeCustomerId     = column[Option[String]]         ("stripe_customer_id")
+  def subscriptionStatus   = column[SubscriptionStatus]     ("subscription_status")
+  def subscriptionRenewsAt = column[Option[OffsetDateTime]] ("subscription_renews_at")
   def createdAt         = column[OffsetDateTime]   ("created_at")
   def updatedAt         = column[OffsetDateTime]   ("updated_at")
 
   def user = foreignKey("fk_surgeon_user", userId, Users)(_.id, onDelete = ForeignKeyAction.Cascade)
 
-  // Scala tuples cap at 22 elements; split into two nested tuples.
+  // Scala tuples cap at 22 elements; split into nested tuples.
   def * = (
     (id, userId, title, firstName, lastName, gmcNumber, qualifications,
      medicalSchool, graduationYear, fellowships, specialty, subspecialties,
      hospital, city, address, yearsExperience, languages, bio, procedures,
      consultFeeClinic, consultFeeVirtual, offersVirtual),
     (tier, profileComplete, profileLive, avatarUrl, rating, reviewCount,
-     consultationCount, createdAt, updatedAt)
+     consultationCount, stripeCustomerId, subscriptionStatus, subscriptionRenewsAt,
+     createdAt, updatedAt)
   ).shaped.<>({
     case (t1, t2) =>
       SurgeonProfile(
@@ -169,7 +173,9 @@ class SurgeonProfilesTable(tag: Tag) extends Table[SurgeonProfile](tag, "surgeon
         consultFeeClinic = t1._20, consultFeeVirtual = t1._21, offersVirtual = t1._22,
         tier = t2._1, profileComplete = t2._2, profileLive = t2._3,
         avatarUrl = t2._4, rating = t2._5, reviewCount = t2._6,
-        consultationCount = t2._7, createdAt = t2._8, updatedAt = t2._9
+        consultationCount = t2._7, stripeCustomerId = t2._8,
+        subscriptionStatus = t2._9, subscriptionRenewsAt = t2._10,
+        createdAt = t2._11, updatedAt = t2._12
       )
   }, { sp: SurgeonProfile =>
     Some((
@@ -179,7 +185,8 @@ class SurgeonProfilesTable(tag: Tag) extends Table[SurgeonProfile](tag, "surgeon
        sp.yearsExperience, sp.languages, sp.bio, sp.procedures,
        sp.consultFeeClinic, sp.consultFeeVirtual, sp.offersVirtual),
       (sp.tier, sp.profileComplete, sp.profileLive, sp.avatarUrl,
-       sp.rating, sp.reviewCount, sp.consultationCount, sp.createdAt, sp.updatedAt)
+       sp.rating, sp.reviewCount, sp.consultationCount, sp.stripeCustomerId,
+       sp.subscriptionStatus, sp.subscriptionRenewsAt, sp.createdAt, sp.updatedAt)
     ))
   })
 }
@@ -336,6 +343,27 @@ class ReviewsTable(tag: Tag) extends Table[Review](tag, "reviews") {
 }
 
 object Reviews extends TableQuery(new ReviewsTable(_))
+
+// ─── platform_fees ────────────────────────────────────────────────────────────
+
+class PlatformFeesTable(tag: Tag) extends Table[PlatformFee](tag, "platform_fees") {
+  def id         = column[UUID]                   ("id",          O.PrimaryKey)
+  def surgeonId  = column[UUID]                   ("surgeon_id")
+  def bookingId  = column[Option[UUID]]           ("booking_id")
+  def feeType    = column[PlatformFeeType]        ("fee_type")
+  def amount     = column[BigDecimal]             ("amount")
+  def paidOut    = column[Boolean]                ("paid_out")
+  def paidOutAt  = column[Option[OffsetDateTime]] ("paid_out_at")
+  def createdAt  = column[OffsetDateTime]         ("created_at")
+
+  def surgeon = foreignKey("fk_platform_fee_surgeon", surgeonId, SurgeonProfiles)(_.id, onDelete = ForeignKeyAction.Cascade)
+
+  def * = (
+    id, surgeonId, bookingId, feeType, amount, paidOut, paidOutAt, createdAt
+  ).mapTo[PlatformFee]
+}
+
+object PlatformFees extends TableQuery(new PlatformFeesTable(_))
 
 // ─── messages ────────────────────────────────────────────────────────────────
 

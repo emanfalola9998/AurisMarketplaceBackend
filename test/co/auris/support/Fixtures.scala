@@ -86,7 +86,9 @@ object Fixtures {
                        profileLive:     Boolean       = true,
                        profileComplete: Boolean       = true,
                        consultFeeClinic:  Option[BigDecimal] = Some(BigDecimal(350)),
-                       consultFeeVirtual: Option[BigDecimal] = Some(BigDecimal(150))
+                       consultFeeVirtual: Option[BigDecimal] = Some(BigDecimal(150)),
+                       stripeCustomerId:   Option[String]     = None,
+                       subscriptionStatus: SubscriptionStatus = SubscriptionStatus.None
                      ): SurgeonProfile =
     SurgeonProfile(
       id                = id,
@@ -103,6 +105,8 @@ object Fixtures {
       tier              = SurgeonTier.Elite,
       profileComplete   = profileComplete,
       profileLive       = profileLive,
+      stripeCustomerId    = stripeCustomerId,
+      subscriptionStatus  = subscriptionStatus,
       createdAt         = now,
       updatedAt         = now
     )
@@ -156,6 +160,22 @@ object Fixtures {
       fee              = fee,
       createdAt        = now,
       updatedAt        = now
+    )
+
+  def platformFee(
+                   id:        UUID            = UUID.randomUUID(),
+                   surgeonId: UUID            = UUID.randomUUID(),
+                   bookingId: Option[UUID]    = None,
+                   feeType:   PlatformFeeType = PlatformFeeType.Transaction,
+                   amount:    BigDecimal      = BigDecimal("1.05")
+                 ): PlatformFee =
+    PlatformFee(
+      id        = id,
+      surgeonId = surgeonId,
+      bookingId = bookingId,
+      feeType   = feeType,
+      amount    = amount,
+      createdAt = now
     )
 
   def review(

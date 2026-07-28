@@ -127,6 +127,9 @@ case class SurgeonProfile(
                            rating:            BigDecimal          = BigDecimal("0.00"),
                            reviewCount:       Int                 = 0,
                            consultationCount: Int                 = 0,
+                           stripeCustomerId:     Option[String]      = None,
+                           subscriptionStatus:   SubscriptionStatus  = SubscriptionStatus.None,
+                           subscriptionRenewsAt: Option[OffsetDateTime] = None,
                            createdAt:         OffsetDateTime,
                            updatedAt:         OffsetDateTime
                          ) {
@@ -163,11 +166,13 @@ object SurgeonProfile {
     "profileComplete"   -> sp.profileComplete,
     "profileLive"       -> sp.profileLive,
     "avatarUrl"         -> sp.avatarUrl,
-    "rating"            -> sp.rating,
-    "reviewCount"       -> sp.reviewCount,
-    "consultationCount" -> sp.consultationCount,
-    "createdAt"         -> sp.createdAt,
-    "updatedAt"         -> sp.updatedAt
+    "rating"              -> sp.rating,
+    "reviewCount"         -> sp.reviewCount,
+    "consultationCount"   -> sp.consultationCount,
+    "subscriptionStatus"  -> sp.subscriptionStatus.entryName,
+    "subscriptionRenewsAt" -> sp.subscriptionRenewsAt,
+    "createdAt"           -> sp.createdAt,
+    "updatedAt"           -> sp.updatedAt
   )
 }
 
@@ -301,6 +306,27 @@ case class Review(
 
 object Review {
   implicit val format: OFormat[Review] = Json.format[Review]
+}
+
+// ─── Platform fee ledger ──────────────────────────────────────────────────────
+// Auris collects all patient payments directly (no Stripe Connect) and pays
+// surgeons their share manually outside Stripe; this ledger — a 1% cut of
+// every paid booking, plus each surgeon's annual membership fee — is what
+// that manual payout is reconciled against.
+
+case class PlatformFee(
+                        id:         UUID,
+                        surgeonId:  UUID,
+                        bookingId:  Option[UUID]    = None,
+                        feeType:    PlatformFeeType,
+                        amount:     BigDecimal,
+                        paidOut:    Boolean         = false,
+                        paidOutAt:  Option[OffsetDateTime] = None,
+                        createdAt:  OffsetDateTime
+                      )
+
+object PlatformFee {
+  implicit val format: OFormat[PlatformFee] = Json.format[PlatformFee]
 }
 
 // ─── Message ─────────────────────────────────────────────────────────────────

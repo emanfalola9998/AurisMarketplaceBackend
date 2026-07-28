@@ -61,6 +61,12 @@ trait AurisPostgresProfile
     implicit val notificationTypeMapper: BaseColumnType[co.auris.models.NotificationType] =
       createEnumJdbcType("notification_type", _.entryName, co.auris.models.NotificationType.withName, quoteName = false)
 
+    implicit val subscriptionStatusTypeMapper: BaseColumnType[co.auris.models.SubscriptionStatus] =
+      createEnumJdbcType("subscription_status", _.entryName, co.auris.models.SubscriptionStatus.withName, quoteName = false)
+
+    implicit val platformFeeTypeTypeMapper: BaseColumnType[co.auris.models.PlatformFeeType] =
+      createEnumJdbcType("platform_fee_type", _.entryName, co.auris.models.PlatformFeeType.withName, quoteName = false)
+
     // ── Column type column shortcuts ──────────────────────────────────────
     // Used in table definitions as: def role = column[UserRole]("role")
   }

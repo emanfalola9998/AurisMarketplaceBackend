@@ -10,8 +10,8 @@
 
 package co.auris.controllers
 
-import co.auris.services.{BookingService, PaymentService}
-import com.stripe.model.PaymentIntent
+import co.auris.services.{BillingService, BookingService, PaymentService}
+import com.stripe.model.{Invoice, PaymentIntent}
 import play.api.libs.json.Json
 import play.api.mvc._
 
@@ -24,6 +24,7 @@ import scala.util.{Failure, Success, Try}
 class StripeWebhookController @Inject() (
                                           cc:             ControllerComponents,
                                           bookingService: BookingService,
+                                          billingService: BillingService,
                                           paymentService: PaymentService
                                         )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
@@ -37,7 +38,7 @@ class StripeWebhookController @Inject() (
         Future.successful(Unauthorized(Json.obj("code" -> "INVALID_SIGNATURE", "message" -> "Invalid Stripe signature.")))
 
       case Success(event) if event.getType == "payment_intent.succeeded" =>
-        extractPaymentIntent(event) match {
+        extractStripeObject[PaymentIntent](event) match {
           case None => Future.successful(Ok)
           case Some(intent) =>
             bookingIdFromMetadata(intent) match {
@@ -47,17 +48,26 @@ class StripeWebhookController @Inject() (
             }
         }
 
+      // Fires when the surgeon's annual membership subscription is paid —
+      // both on first sign-up and on each yearly renewal.
+      case Success(event) if event.getType == "invoice.paid" =>
+        extractStripeObject[Invoice](event) match {
+          case None => Future.successful(Ok)
+          case Some(invoice) =>
+            billingService.confirmMembershipPayment(invoice.getCustomer).map(_ => Ok)
+        }
+
       case Success(_) =>
         Future.successful(Ok)
     }
   }
 
-  private def extractPaymentIntent(event: com.stripe.model.Event): Option[PaymentIntent] = {
+  private def extractStripeObject[T](event: com.stripe.model.Event)(implicit ct: scala.reflect.ClassTag[T]): Option[T] = {
     val deserializer = event.getDataObjectDeserializer
     val stripeObject = if (deserializer.getObject.isPresent) deserializer.getObject.get() else deserializer.deserializeUnsafe()
     stripeObject match {
-      case intent: PaymentIntent => Some(intent)
-      case _                     => None
+      case obj: T => Some(obj)
+      case _      => None
     }
   }
 

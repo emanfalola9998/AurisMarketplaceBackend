@@ -37,7 +37,8 @@ class BookingService @Inject() (
                                  surgeonRepository:   SurgeonRepository,
                                  userRepository:      UserRepository,
                                  notificationService: NotificationService,
-                                 paymentService:      PaymentService
+                                 paymentService:      PaymentService,
+                                 billingService:      BillingService
                                )(implicit ec: ExecutionContext) {
 
   private def notify(f: => Future[Unit]): Future[Unit] = f.recover { case _ => () }
@@ -184,30 +185,35 @@ class BookingService @Inject() (
     bookingRepository.findBookingById(bookingId).flatMap {
       case None => Future.successful(Left(BookingError.NotFound))
       case Some(existing) if existing.status == BookingStatus.Confirmed =>
-        Future.successful(Right(existing))
+        // Idempotent — a webhook redelivery still needs the platform-fee
+        // ledger entry to exist even though the booking itself is already done.
+        billingService.recordTransactionFee(existing.surgeonId, existing.id, existing.fee)
+          .map(_ => Right(existing))
       case Some(_) =>
         bookingRepository.markBookingPaid(bookingId, paymentIntentId).flatMap { _ =>
           bookingRepository.findBookingById(bookingId).flatMap {
             case None => Future.successful(Left(BookingError.NotFound))
             case Some(b) =>
-              notify(
-                for {
-                  patientOpt     <- patientRepository.findById(b.patientId)
-                  surgeonOpt     <- surgeonRepository.findById(b.surgeonId)
-                  patientUserOpt <- patientOpt match {
-                                       case Some(p) => userRepository.findById(p.userId)
-                                       case None    => Future.successful(None)
-                                     }
-                  surgeonUserOpt <- surgeonOpt match {
-                                       case Some(s) => userRepository.findById(s.userId)
-                                       case None    => Future.successful(None)
-                                     }
-                  _ <- (patientUserOpt, surgeonUserOpt) match {
-                         case (Some(pu), Some(su)) => notificationService.sendBookingConfirmed(pu.email, su.email)
-                         case _                    => Future.successful(())
-                       }
-                } yield ()
-              ).map(_ => Right(b))
+              billingService.recordTransactionFee(b.surgeonId, b.id, b.fee).flatMap { _ =>
+                notify(
+                  for {
+                    patientOpt     <- patientRepository.findById(b.patientId)
+                    surgeonOpt     <- surgeonRepository.findById(b.surgeonId)
+                    patientUserOpt <- patientOpt match {
+                                         case Some(p) => userRepository.findById(p.userId)
+                                         case None    => Future.successful(None)
+                                       }
+                    surgeonUserOpt <- surgeonOpt match {
+                                         case Some(s) => userRepository.findById(s.userId)
+                                         case None    => Future.successful(None)
+                                       }
+                    _ <- (patientUserOpt, surgeonUserOpt) match {
+                           case (Some(pu), Some(su)) => notificationService.sendBookingConfirmed(pu.email, su.email)
+                           case _                    => Future.successful(())
+                         }
+                  } yield ()
+                ).map(_ => Right(b))
+              }
           }
         }
     }

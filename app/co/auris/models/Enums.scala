@@ -174,6 +174,64 @@ object EnquiryStatus extends Enum[EnquiryStatus] {
   )
 }
 
+// ─── SubscriptionStatus ───────────────────────────────────────────────────────
+
+sealed trait SubscriptionStatus extends EnumEntry {
+  override def entryName: String = toString match {
+    case "PastDue" => "past_due"
+    case other     => other.toLowerCase
+  }
+}
+object SubscriptionStatus extends Enum[SubscriptionStatus] {
+  case object None     extends SubscriptionStatus
+  case object Active   extends SubscriptionStatus
+  case object PastDue  extends SubscriptionStatus
+  case object Canceled extends SubscriptionStatus
+  val values: IndexedSeq[SubscriptionStatus] = findValues
+  override def withName(s: String): SubscriptionStatus = s match {
+    case "past_due" => PastDue
+    case other       => withNameInsensitive(other)
+  }
+
+  implicit val format: Format[SubscriptionStatus] = Format(
+    Reads { json =>
+      json.validate[String].flatMap { s =>
+        values.find(_.entryName == s)
+          .fold[JsResult[SubscriptionStatus]](JsError(s"Invalid SubscriptionStatus: $s"))(JsSuccess(_))
+      }
+    },
+    Writes(r => JsString(r.entryName))
+  )
+}
+
+// ─── PlatformFeeType ──────────────────────────────────────────────────────────
+
+sealed trait PlatformFeeType extends EnumEntry {
+  override def entryName: String = toString match {
+    case "AnnualMembership" => "annual_membership"
+    case other              => other.toLowerCase
+  }
+}
+object PlatformFeeType extends Enum[PlatformFeeType] {
+  case object Transaction      extends PlatformFeeType
+  case object AnnualMembership extends PlatformFeeType
+  val values: IndexedSeq[PlatformFeeType] = findValues
+  override def withName(s: String): PlatformFeeType = s match {
+    case "annual_membership" => AnnualMembership
+    case other               => withNameInsensitive(other)
+  }
+
+  implicit val format: Format[PlatformFeeType] = Format(
+    Reads { json =>
+      json.validate[String].flatMap { s =>
+        values.find(_.entryName == s)
+          .fold[JsResult[PlatformFeeType]](JsError(s"Invalid PlatformFeeType: $s"))(JsSuccess(_))
+      }
+    },
+    Writes(r => JsString(r.entryName))
+  )
+}
+
 // ─── NotificationType ─────────────────────────────────────────────────────────
 
 sealed trait NotificationType extends EnumEntry {
