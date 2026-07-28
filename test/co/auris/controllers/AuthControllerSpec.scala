@@ -324,4 +324,83 @@ class AuthControllerSpec extends AnyWordSpec with Matchers with PlayIntegrationS
       (contentAsJson(res) \ "code").as[String] mustBe "WEAK_PASSWORD"
     }
   }
+
+  // The frontend decides where to send a user immediately after sign-in/sign-up
+  // by reading user.role, user.patient.onboardingComplete, and
+  // user.surgeon.profileComplete straight off this response (see
+  // useAuthRedirect.ts on the frontend) — these tests pin that contract down
+  // so a backend change can't silently break the redirect.
+  "the sign-in/sign-up response contract the frontend redirect depends on" should {
+    "returns patient.onboardingComplete = false for a freshly signed-up patient" in {
+      val body = signUpPatient("redirect-patient@example.com")
+
+      (body \ "user" \ "role").as[String] mustBe "patient"
+      (body \ "user" \ "patient" \ "onboardingComplete").as[Boolean] mustBe false
+      (body \ "user" \ "surgeon").toOption mustBe None
+    }
+
+    "returns surgeon.profileComplete = false for a freshly signed-up surgeon" in {
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-up")
+        .withJsonBody(signUpBody("redirect-surgeon@example.com", role = "surgeon"))).get
+      val body = contentAsJson(res)
+
+      (body \ "user" \ "role").as[String] mustBe "surgeon"
+      (body \ "user" \ "surgeon" \ "profileComplete").as[Boolean] mustBe false
+      (body \ "user" \ "patient").toOption mustBe None
+    }
+
+    "returns the same patient.onboardingComplete field on sign-in as on sign-up" in {
+      signUpPatient("redirect-signin-patient@example.com")
+
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-in")
+        .withJsonBody(Json.obj("email" -> "redirect-signin-patient@example.com", "password" -> "password123"))).get
+      val body = contentAsJson(res)
+
+      (body \ "user" \ "role").as[String] mustBe "patient"
+      (body \ "user" \ "patient" \ "onboardingComplete").as[Boolean] mustBe false
+    }
+
+    "returns the same surgeon.profileComplete field on sign-in as on sign-up" in {
+      val signUpRes = route(app, FakeRequest(POST, "/api/auth/sign-up")
+        .withJsonBody(signUpBody("redirect-signin-surgeon@example.com", role = "surgeon"))).get
+      status(signUpRes) mustBe CREATED
+
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-in")
+        .withJsonBody(Json.obj("email" -> "redirect-signin-surgeon@example.com", "password" -> "password123"))).get
+      val body = contentAsJson(res)
+
+      (body \ "user" \ "role").as[String] mustBe "surgeon"
+      (body \ "user" \ "surgeon" \ "profileComplete").as[Boolean] mustBe false
+    }
+
+    "reflects onboardingComplete = true on sign-in once a patient has finished onboarding" in {
+      signUpPatient("redirect-onboarded@example.com")
+      Await.result(
+        db.run(sqlu"""UPDATE patient_profiles SET onboarding_complete = true
+                      WHERE user_id = (SELECT id FROM users WHERE email = 'redirect-onboarded@example.com')"""),
+        10.seconds
+      )
+
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-in")
+        .withJsonBody(Json.obj("email" -> "redirect-onboarded@example.com", "password" -> "password123"))).get
+
+      (contentAsJson(res) \ "user" \ "patient" \ "onboardingComplete").as[Boolean] mustBe true
+    }
+
+    "reflects profileComplete = true on sign-in once a surgeon has finished their profile" in {
+      val signUpRes = route(app, FakeRequest(POST, "/api/auth/sign-up")
+        .withJsonBody(signUpBody("redirect-surgeon-complete@example.com", role = "surgeon"))).get
+      status(signUpRes) mustBe CREATED
+      Await.result(
+        db.run(sqlu"""UPDATE surgeon_profiles SET profile_complete = true
+                      WHERE user_id = (SELECT id FROM users WHERE email = 'redirect-surgeon-complete@example.com')"""),
+        10.seconds
+      )
+
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-in")
+        .withJsonBody(Json.obj("email" -> "redirect-surgeon-complete@example.com", "password" -> "password123"))).get
+
+      (contentAsJson(res) \ "user" \ "surgeon" \ "profileComplete").as[Boolean] mustBe true
+    }
+  }
 }
