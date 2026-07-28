@@ -276,27 +276,27 @@ class BookingServiceSpec extends AnyWordSpec
       result mustBe Left(BookingError.SurgeonNotFound)
     }
 
-    "create a Pending booking, open a Stripe PaymentIntent for its fee, and return the client secret" in {
+    "create a Pending booking, open a Stripe PaymentIntent for a 30% deposit, and return the client secret" in {
       val patient = Fixtures.patientProfile()
       val surgeon = Fixtures.surgeonProfile()
       val scheduledAt = OffsetDateTime.now().plusDays(14)
       val patientUser = Fixtures.user()
-      val createdBooking = Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id)
+      val createdBooking = Fixtures.booking(patientId = patient.id, surgeonId = surgeon.id, fee = BigDecimal(350))
       when(patientRepository.findByUserId(any[UUID])).thenReturn(Future.successful(Some(patient)))
       when(surgeonRepository.findById(surgeon.id)).thenReturn(Future.successful(Some(surgeon)))
       when(userRepository.findById(patient.userId)).thenReturn(Future.successful(Some(patientUser)))
       when(bookingRepository.createBooking(
         any[Option[UUID]], eqTo(patient.id), eqTo(surgeon.id), eqTo(ConsultationType.InClinic), eqTo(scheduledAt), eqTo(60.toShort), any[BigDecimal]
       )).thenReturn(Future.successful(createdBooking))
-      when(paymentService.createPaymentIntent(eqTo(createdBooking.id), any[BigDecimal], eqTo(Some(patientUser.email))))
+      when(paymentService.createPaymentIntent(eqTo(createdBooking.id), eqTo(BigDecimal("105.00")), eqTo(Some(patientUser.email))))
         .thenReturn(Future.successful(PaymentIntentResult("pi_abc", "pi_abc_secret_xyz")))
 
       val result = service.createBooking(
         UUID.randomUUID(), surgeon.id, None, ConsultationType.InClinic, scheduledAt, 60
       ).futureValue
 
-      result mustBe Right(BookingWithPayment(createdBooking, "pi_abc_secret_xyz"))
-      verify(paymentService).createPaymentIntent(eqTo(createdBooking.id), any[BigDecimal], eqTo(Some(patientUser.email)))
+      result mustBe Right(BookingWithPayment(createdBooking, "pi_abc_secret_xyz", BigDecimal("105.00")))
+      verify(paymentService).createPaymentIntent(eqTo(createdBooking.id), eqTo(BigDecimal("105.00")), eqTo(Some(patientUser.email)))
     }
 
     "notifies no one yet — the booking isn't paid for" in {

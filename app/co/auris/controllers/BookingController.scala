@@ -139,10 +139,11 @@ class BookingController @Inject() (
               NotFound(apiError("NOT_FOUND", "Surgeon not found."))
             case Left(other) =>
               InternalServerError(apiError("INTERNAL_ERROR", other.toString))
-            case Right(BookingWithPayment(booking, clientSecret)) =>
+            case Right(BookingWithPayment(booking, clientSecret, depositAmount)) =>
               Created(Json.obj(
                 "booking"            -> Json.toJson(booking),
-                "stripeClientSecret" -> clientSecret
+                "stripeClientSecret" -> clientSecret,
+                "depositAmount"      -> depositAmount
               ))
           }
       }

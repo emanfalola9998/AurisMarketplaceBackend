@@ -22,7 +22,13 @@ object BookingError {
   case class  Unexpected(msg: String) extends BookingError
 }
 
-final case class BookingWithPayment(booking: Booking, stripeClientSecret: String)
+final case class BookingWithPayment(booking: Booking, stripeClientSecret: String, depositAmount: BigDecimal)
+
+object BookingService {
+  // Patients pay this fraction of the consultation fee up front through Stripe;
+  // the remainder is collected by the practice at the appointment.
+  val DepositRate: BigDecimal = BigDecimal("0.30")
+}
 
 @Singleton
 class BookingService @Inject() (
@@ -155,14 +161,15 @@ class BookingService @Inject() (
             case ConsultationType.InClinic => surgeon.consultFeeClinic.getOrElse(BigDecimal(0))
             case ConsultationType.Virtual  => surgeon.consultFeeVirtual.getOrElse(BigDecimal(0))
           }
+          val depositAmount = (fee * BookingService.DepositRate).setScale(2, BigDecimal.RoundingMode.HALF_UP)
           for {
             booking        <- bookingRepository.createBooking(
                                  enquiryId, patient.id, surgeonId,
                                  consultationType, scheduledAt, durationMinutes, fee
                                )
             patientUserOpt <- userRepository.findById(patient.userId)
-            intentResult   <- paymentService.createPaymentIntent(booking.id, fee, patientUserOpt.map(_.email))
-          } yield Right(BookingWithPayment(booking, intentResult.clientSecret))
+            intentResult   <- paymentService.createPaymentIntent(booking.id, depositAmount, patientUserOpt.map(_.email))
+          } yield Right(BookingWithPayment(booking, intentResult.clientSecret, depositAmount))
       }
     } yield result
 
