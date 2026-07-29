@@ -29,6 +29,7 @@ POST    /api/surgeons/apply             co.auris.controllers.SurgeonController.a
 
 PUT     /api/surgeons/profile           co.auris.controllers.SurgeonController.updateProfile
 POST    /api/surgeons/profile/avatar    co.auris.controllers.SurgeonController.uploadAvatar
+GET     /api/surgeons/availability      co.auris.controllers.SurgeonController.myAvailability
 PUT     /api/surgeons/availability      co.auris.controllers.SurgeonController.updateAvailability
 GET     /api/surgeons/dashboard         co.auris.controllers.SurgeonController.dashboard
 POST    /api/surgeons/membership/subscribe co.auris.controllers.BillingController.subscribeToMembership
@@ -67,6 +68,7 @@ POST    /api/stripe/webhook              co.auris.controllers.StripeWebhookContr
 
 POST    /api/reviews                    co.auris.controllers.BookingController.createReview
 GET     /api/surgeons/:id/reviews       co.auris.controllers.SurgeonController.reviews(id: java.util.UUID)
+GET     /api/surgeons/:id/availability  co.auris.controllers.SurgeonController.availability(id: java.util.UUID)
 
 # ─── Messages ─────────────────────────────────────────────────────────────────
 

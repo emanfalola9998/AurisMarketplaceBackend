@@ -3,11 +3,12 @@
 package co.auris.repositories
 
 import co.auris.db.AurisPostgresProfile.api._
-import co.auris.db.SurgeonAvailabilities
+import co.auris.db.{SurgeonAvailabilities, SurgeonBlockedSlots}
 import co.auris.models._
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
+import java.time.OffsetDateTime
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
@@ -23,6 +24,17 @@ class SurgeonAvailabilityRepository @Inject() (
       SurgeonAvailabilities
         .filter(_.surgeonId === surgeonId)
         .sortBy(a => (a.dayOfWeek, a.startTime))
+        .result
+    ).map(_.toList)
+
+  def listBlockedForSurgeonInRange(
+                                    surgeonId: UUID,
+                                    from:      OffsetDateTime,
+                                    to:        OffsetDateTime
+                                  ): Future[List[SurgeonBlockedSlot]] =
+    db.run(
+      SurgeonBlockedSlots
+        .filter(b => b.surgeonId === surgeonId && b.blockedAt >= from && b.blockedAt < to)
         .result
     ).map(_.toList)
 

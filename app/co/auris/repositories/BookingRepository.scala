@@ -137,6 +137,25 @@ class BookingRepository @Inject() (
     db.run(q.sortBy(_.scheduledAt.desc).result).map(_.toList)
   }
 
+  private val CancelledStatuses: Set[BookingStatus] =
+    Set(BookingStatus.CancelledByPatient, BookingStatus.CancelledBySurgeon)
+
+  /** Active (not cancelled) bookings whose scheduled window falls in [from, to). */
+  def listActiveForSurgeonInRange(
+                                   surgeonId: UUID,
+                                   from:      OffsetDateTime,
+                                   to:        OffsetDateTime
+                                 ): Future[List[Booking]] =
+    db.run(
+      Bookings
+        .filter { b =>
+          b.surgeonId === surgeonId &&
+          b.scheduledAt >= from && b.scheduledAt < to &&
+          !b.status.inSet(CancelledStatuses)
+        }
+        .result
+    ).map(_.toList)
+
   def updateBookingStatus(
                            id:               UUID,
                            status:           BookingStatus,

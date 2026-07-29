@@ -5,14 +5,15 @@ package co.auris.controllers
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
 import co.auris.repositories.{NewAvailabilitySlot, SurgeonAvailabilityRepository, SurgeonRepository}
-import co.auris.services.{StorageError, StorageService, SurgeonError, SurgeonService}
+import co.auris.services.{AvailabilityService, StorageError, StorageService, SurgeonError, SurgeonService}
 import play.api.libs.json._
 import play.api.mvc._
 
-import java.time.LocalTime
+import java.time.{LocalDate, LocalTime}
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Try
 
 @Singleton
 class SurgeonController @Inject() (
@@ -21,6 +22,7 @@ class SurgeonController @Inject() (
                                     surgeonService:              SurgeonService,
                                     surgeonRepository:           SurgeonRepository,
                                     availabilityRepository:      SurgeonAvailabilityRepository,
+                                    availabilityService:         AvailabilityService,
                                     storageService:              StorageService
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
@@ -60,6 +62,48 @@ class SurgeonController @Inject() (
       case Some(_) =>
         // TODO: wire to ReviewRepository once built
         Ok(Json.obj("items" -> JsArray(), "totalCount" -> 0, "page" -> 1, "pageSize" -> 20))
+    }
+  }
+
+  // ─── GET /api/surgeons/:id/availability ──────────────────────────────────
+  // Computed bookable slots for a public surgeon profile: weekly template
+  // minus anything already booked or blocked. Defaults to the next 14 days.
+
+  def availability(id: UUID): Action[AnyContent] = Action.async { implicit request =>
+    def parseDate(s: String): Option[LocalDate] = Try(LocalDate.parse(s)).toOption
+
+    val today    = LocalDate.now()
+    val fromDate = request.getQueryString("from").flatMap(parseDate).getOrElse(today)
+    val toDate   = request.getQueryString("to").flatMap(parseDate).getOrElse(fromDate.plusDays(13))
+
+    if (toDate.isBefore(fromDate)) {
+      Future.successful(BadRequest(apiError("VALIDATION_ERROR", "'to' must not be before 'from'.")))
+    } else if (java.time.temporal.ChronoUnit.DAYS.between(fromDate, toDate) > 60) {
+      Future.successful(BadRequest(apiError("VALIDATION_ERROR", "Date range must not exceed 60 days.")))
+    } else {
+      surgeonRepository.findById(id).flatMap {
+        case None    => Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon not found.")))
+        case Some(_) =>
+          availabilityService.availableSlots(id, fromDate, toDate).map { days =>
+            Ok(Json.obj("items" -> Json.toJson(days)))
+          }
+      }
+    }
+  }
+
+  // ─── GET /api/surgeons/availability ──────────────────────────────────────
+  // The authenticated surgeon's own weekly schedule template.
+
+  def myAvailability: Action[AnyContent] = authAction.async { implicit request =>
+    request.requireSurgeon {
+      surgeonRepository.findByUserId(request.userId).flatMap {
+        case None =>
+          Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon profile not found.")))
+        case Some(surgeon) =>
+          availabilityRepository.listForSurgeon(surgeon.id).map { slots =>
+            Ok(Json.obj("items" -> Json.toJson(slots)))
+          }
+      }
     }
   }
 

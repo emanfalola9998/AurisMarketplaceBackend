@@ -224,6 +224,14 @@ case class SurgeonBlockedSlot(
                                reason:       Option[String] = None
                              )
 
+// ─── Computed availability (not a table — derived from template + bookings + blocked slots) ──
+
+case class AvailableDay(date: LocalDate, slots: List[LocalTime])
+
+object AvailableDay {
+  implicit val format: OFormat[AvailableDay] = Json.format[AvailableDay]
+}
+
 // ─── Saved surgeon ────────────────────────────────────────────────────────────
 
 case class SavedSurgeon(

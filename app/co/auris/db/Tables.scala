@@ -237,6 +237,20 @@ class SurgeonAvailabilityTable(tag: Tag) extends Table[SurgeonAvailability](tag,
 
 object SurgeonAvailabilities extends TableQuery(new SurgeonAvailabilityTable(_))
 
+// ─── surgeon_blocked_slots ────────────────────────────────────────────────────
+
+class SurgeonBlockedSlotsTable(tag: Tag) extends Table[SurgeonBlockedSlot](tag, "surgeon_blocked_slots") {
+  def id           = column[UUID]           ("id",         O.PrimaryKey)
+  def surgeonId    = column[UUID]           ("surgeon_id")
+  def blockedAt    = column[OffsetDateTime] ("blocked_at")
+  def durationMins = column[Short]          ("duration_mins")
+  def reason       = column[Option[String]] ("reason")
+
+  def * = (id, surgeonId, blockedAt, durationMins, reason).mapTo[SurgeonBlockedSlot]
+}
+
+object SurgeonBlockedSlots extends TableQuery(new SurgeonBlockedSlotsTable(_))
+
 // ─── saved_surgeons ───────────────────────────────────────────────────────────
 
 class SavedSurgeonsTable(tag: Tag) extends Table[SavedSurgeon](tag, "saved_surgeons") {
