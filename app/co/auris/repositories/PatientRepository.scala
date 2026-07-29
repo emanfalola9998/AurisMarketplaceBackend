@@ -8,7 +8,7 @@ import co.auris.models._
 import play.api.db.slick.{DatabaseConfigProvider, HasDatabaseConfigProvider}
 import slick.jdbc.JdbcProfile
 
-import java.time.{OffsetDateTime, ZoneOffset}
+import java.time.{LocalDate, OffsetDateTime, ZoneOffset}
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
@@ -69,6 +69,20 @@ class PatientRepository @Inject() (
           budgetRange, timeline,
           true, OffsetDateTime.now(ZoneOffset.UTC)
         ))
+    )
+
+  def updateProfile(
+                     id:          UUID,
+                     firstName:   String,
+                     lastName:    String,
+                     dateOfBirth: Option[LocalDate],
+                     phone:       Option[String]
+                   ): Future[Int] =
+    db.run(
+      PatientProfiles
+        .filter(_.id === id)
+        .map(p => (p.firstName, p.lastName, p.dateOfBirth, p.phone, p.updatedAt))
+        .update((firstName, lastName, dateOfBirth, phone, OffsetDateTime.now(ZoneOffset.UTC)))
     )
 
   def updateAvatar(id: UUID, avatarUrl: String): Future[Int] =

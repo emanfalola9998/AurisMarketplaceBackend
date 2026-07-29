@@ -53,6 +53,33 @@ class PatientController @Inject() (
     }
   }
 
+  // ─── PUT /api/patients/profile ───────────────────────────────────────────
+
+  def updateProfile: Action[JsValue] = authAction(parse.json).async { implicit request =>
+    request.requirePatient {
+      patientRepository.findByUserId(request.userId).flatMap {
+        case None =>
+          Future.successful(NotFound(apiError("NOT_FOUND", "Patient profile not found.")))
+
+        case Some(profile) =>
+          val body = request.body
+          val firstName = (body \ "firstName").asOpt[String].filter(_.trim.nonEmpty).getOrElse(profile.firstName)
+          val lastName  = (body \ "lastName").asOpt[String].filter(_.trim.nonEmpty).getOrElse(profile.lastName)
+          val dateOfBirth = (body \ "dateOfBirth").asOpt[String]
+            .flatMap(s => scala.util.Try(java.time.LocalDate.parse(s)).toOption)
+            .orElse(profile.dateOfBirth)
+          val phone = (body \ "phone").asOpt[String].filter(_.trim.nonEmpty).orElse(profile.phone)
+
+          patientRepository.updateProfile(profile.id, firstName, lastName, dateOfBirth, phone).flatMap { _ =>
+            patientRepository.findById(profile.id).map {
+              case None    => InternalServerError(apiError("INTERNAL_ERROR", "Failed to load updated profile."))
+              case Some(p) => Ok(Json.toJson(p))
+            }
+          }
+      }
+    }
+  }
+
   // ─── GET /api/patients/dashboard ─────────────────────────────────────────
 
   def dashboard: Action[AnyContent] = authAction.async { implicit request =>

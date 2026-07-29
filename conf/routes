@@ -16,9 +16,13 @@ POST    /api/auth/forgot-password       co.auris.controllers.AuthController.forg
 POST    /api/auth/reset-password        co.auris.controllers.AuthController.resetPassword
 
 # ─── Surgeons — public ────────────────────────────────────────────────────────
+# GET /api/surgeons/:id must come after every literal /api/surgeons/<word>
+# route below — Play matches routes top-to-bottom, and a UUID-typed :id
+# segment fails binding (400) on a literal path instead of falling through
+# to try the next route, so any ambiguous literal segment MUST be declared
+# first or it'll never be reachable.
 
 GET     /api/surgeons                   co.auris.controllers.SurgeonController.search
-GET     /api/surgeons/:id               co.auris.controllers.SurgeonController.findById(id: java.util.UUID)
 POST    /api/surgeons/apply             co.auris.controllers.SurgeonController.apply
 
 # ─── Surgeons — protected (surgeon only) ─────────────────────────────────────
@@ -29,9 +33,12 @@ PUT     /api/surgeons/availability      co.auris.controllers.SurgeonController.u
 GET     /api/surgeons/dashboard         co.auris.controllers.SurgeonController.dashboard
 POST    /api/surgeons/membership/subscribe co.auris.controllers.BillingController.subscribeToMembership
 
+GET     /api/surgeons/:id               co.auris.controllers.SurgeonController.findById(id: java.util.UUID)
+
 # ─── Patients — protected (patient only) ─────────────────────────────────────
 
 PUT     /api/patients/onboarding        co.auris.controllers.PatientController.completeOnboarding
+PUT     /api/patients/profile           co.auris.controllers.PatientController.updateProfile
 GET     /api/patients/dashboard         co.auris.controllers.PatientController.dashboard
 GET     /api/patients/saved             co.auris.controllers.PatientController.savedSurgeons
 POST    /api/patients/saved/:surgeonId  co.auris.controllers.PatientController.saveSurgeon(surgeonId: java.util.UUID)
