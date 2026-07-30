@@ -5,7 +5,7 @@ package co.auris.services
 import co.auris.models._
 import co.auris.repositories.{BookingRepository, PatientRepository, SurgeonRepository, UserRepository}
 
-import java.time.{LocalDate, LocalTime, OffsetDateTime}
+import java.time.{LocalDate, LocalTime, OffsetDateTime, ZoneOffset}
 import java.util.UUID
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
@@ -17,6 +17,8 @@ object BookingError {
   case object AlreadyReviewed       extends BookingError
   case object BookingNotCompleted   extends BookingError
   case object InvalidStatus         extends BookingError
+  case object InvalidSchedule       extends BookingError
+  case object SlotUnavailable       extends BookingError
   case object SurgeonNotFound       extends BookingError
   case object PatientNotFound       extends BookingError
   case class  Unexpected(msg: String) extends BookingError
@@ -272,6 +274,63 @@ class BookingService @Inject() (
             bookingRepository.findBookingById(b.id).map {
               case None    => Left(BookingError.NotFound)
               case Some(updated) => Right(updated)
+            }
+          }
+        }
+    }
+
+  /** Moves a booking to a new time, provided it's still Pending/Confirmed, the
+    * new time is in the future, and it doesn't collide with the surgeon's
+    * other active bookings (their own current slot is ignored, since they're
+    * about to vacate it). */
+  def rescheduleBooking(
+                         bookingId:      UUID,
+                         userId:         UUID,
+                         role:           UserRole,
+                         newScheduledAt: OffsetDateTime
+                       ): Future[Either[BookingError, Booking]] =
+    findBooking(bookingId, userId, role).flatMap {
+      case Left(e) => Future.successful(Left(e))
+      case Right(b) if b.status != BookingStatus.Pending && b.status != BookingStatus.Confirmed =>
+        Future.successful(Left(BookingError.InvalidStatus))
+      case Right(_) if !newScheduledAt.isAfter(OffsetDateTime.now(ZoneOffset.UTC)) =>
+        Future.successful(Left(BookingError.InvalidSchedule))
+      case Right(b) =>
+        val dayStart = newScheduledAt.toLocalDate.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime
+        val dayEnd   = dayStart.plusDays(1)
+        val newEnd   = newScheduledAt.plusMinutes(b.durationMinutes.toLong)
+
+        bookingRepository.listActiveForSurgeonInRange(b.surgeonId, dayStart, dayEnd, Some(b.id)).flatMap { others =>
+          val collides = others.exists { o =>
+            val oEnd = o.scheduledAt.plusMinutes(o.durationMinutes.toLong)
+            o.scheduledAt.isBefore(newEnd) && newScheduledAt.isBefore(oEnd)
+          }
+          if (collides) {
+            Future.successful(Left(BookingError.SlotUnavailable))
+          } else {
+            bookingRepository.rescheduleBooking(b.id, newScheduledAt).flatMap { _ =>
+              bookingRepository.findBookingById(b.id).flatMap {
+                case None => Future.successful(Left(BookingError.NotFound))
+                case Some(updated) =>
+                  notify(
+                    for {
+                      patientOpt     <- patientRepository.findById(updated.patientId)
+                      surgeonOpt     <- surgeonRepository.findById(updated.surgeonId)
+                      patientUserOpt <- patientOpt match {
+                                           case Some(p) => userRepository.findById(p.userId)
+                                           case None    => Future.successful(None)
+                                         }
+                      surgeonUserOpt <- surgeonOpt match {
+                                           case Some(s) => userRepository.findById(s.userId)
+                                           case None    => Future.successful(None)
+                                         }
+                      _ <- (patientUserOpt, surgeonUserOpt) match {
+                             case (Some(pu), Some(su)) => notificationService.sendBookingRescheduled(pu.email, su.email, newScheduledAt)
+                             case _                    => Future.successful(())
+                           }
+                    } yield ()
+                  ).map(_ => Right(updated))
+              }
             }
           }
         }

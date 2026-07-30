@@ -140,21 +140,31 @@ class BookingRepository @Inject() (
   private val CancelledStatuses: Set[BookingStatus] =
     Set(BookingStatus.CancelledByPatient, BookingStatus.CancelledBySurgeon)
 
-  /** Active (not cancelled) bookings whose scheduled window falls in [from, to). */
+  /** Active (not cancelled) bookings whose scheduled window falls in [from, to).
+    * excludeBookingId lets a booking being rescheduled ignore its own current
+    * slot when checking what else the surgeon has on. */
   def listActiveForSurgeonInRange(
-                                   surgeonId: UUID,
-                                   from:      OffsetDateTime,
-                                   to:        OffsetDateTime
-                                 ): Future[List[Booking]] =
+                                   surgeonId:       UUID,
+                                   from:            OffsetDateTime,
+                                   to:              OffsetDateTime,
+                                   excludeBookingId: Option[UUID] = None
+                                 ): Future[List[Booking]] = {
+    val base = Bookings.filter { b =>
+      b.surgeonId === surgeonId &&
+      b.scheduledAt >= from && b.scheduledAt < to &&
+      !b.status.inSet(CancelledStatuses)
+    }
+    val q = excludeBookingId.fold(base)(id => base.filter(_.id =!= id))
+    db.run(q.result).map(_.toList)
+  }
+
+  def rescheduleBooking(id: UUID, newScheduledAt: OffsetDateTime): Future[Int] =
     db.run(
       Bookings
-        .filter { b =>
-          b.surgeonId === surgeonId &&
-          b.scheduledAt >= from && b.scheduledAt < to &&
-          !b.status.inSet(CancelledStatuses)
-        }
-        .result
-    ).map(_.toList)
+        .filter(_.id === id)
+        .map(b => (b.scheduledAt, b.updatedAt))
+        .update((newScheduledAt, OffsetDateTime.now(ZoneOffset.UTC)))
+    )
 
   def updateBookingStatus(
                            id:               UUID,

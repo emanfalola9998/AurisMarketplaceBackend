@@ -58,6 +58,7 @@ POST    /api/bookings                   co.auris.controllers.BookingController.c
 GET     /api/bookings                   co.auris.controllers.BookingController.listBookings
 GET     /api/bookings/:id               co.auris.controllers.BookingController.findBooking(id: java.util.UUID)
 PUT     /api/bookings/:id/cancel        co.auris.controllers.BookingController.cancelBooking(id: java.util.UUID)
+PUT     /api/bookings/:id/reschedule    co.auris.controllers.BookingController.rescheduleBooking(id: java.util.UUID)
 
 # ─── Stripe ───────────────────────────────────────────────────────────────────
 # Unauthenticated — Stripe calls this directly; verified via webhook signature.

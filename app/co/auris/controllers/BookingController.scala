@@ -185,6 +185,26 @@ class BookingController @Inject() (
     }
   }
 
+  // ─── PUT /api/bookings/:id/reschedule ────────────────────────────────────
+
+  def rescheduleBooking(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
+    (request.body \ "scheduledAt").asOpt[String].flatMap(s => scala.util.Try(OffsetDateTime.parse(s)).toOption) match {
+      case None =>
+        Future.successful(BadRequest(apiError("BAD_REQUEST", "scheduledAt (ISO 8601) is required.")))
+
+      case Some(newScheduledAt) =>
+        bookingService.rescheduleBooking(id, request.userId, request.user.role, newScheduledAt).map {
+          case Left(BookingError.NotFound)         => NotFound(apiError("NOT_FOUND", "Booking not found."))
+          case Left(BookingError.Forbidden)        => Forbidden(apiError("FORBIDDEN", "Access denied."))
+          case Left(BookingError.InvalidStatus)    => Conflict(apiError("INVALID_STATUS", "Booking cannot be rescheduled in its current state."))
+          case Left(BookingError.InvalidSchedule)  => BadRequest(apiError("INVALID_SCHEDULE", "The new time must be in the future."))
+          case Left(BookingError.SlotUnavailable)  => Conflict(apiError("SLOT_UNAVAILABLE", "That time is no longer available."))
+          case Left(other)                          => InternalServerError(apiError("INTERNAL_ERROR", other.toString))
+          case Right(booking)                       => Ok(Json.toJson(booking))
+        }
+    }
+  }
+
   // ─── POST /api/reviews ────────────────────────────────────────────────────
 
   def createReview: Action[JsValue] = authAction(parse.json).async { implicit request =>

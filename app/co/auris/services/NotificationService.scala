@@ -10,6 +10,8 @@ package co.auris.services
 import play.api.Configuration
 import play.api.libs.mailer.{Email, MailerClient}
 
+import java.time.OffsetDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
 
@@ -78,4 +80,22 @@ class NotificationService @Inject() (
              "<p>A consultation booking has been confirmed on your calendar. Sign in to your dashboard for details.</p>"
            )
     } yield ()
+
+  private val rescheduleFormat = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm 'UTC'")
+
+  def sendBookingRescheduled(patientEmail: String, surgeonEmail: String, newScheduledAt: OffsetDateTime): Future[Unit] = {
+    val whenText = newScheduledAt.format(rescheduleFormat)
+    for {
+      _ <- send(
+             patientEmail,
+             "Your Auris consultation has been rescheduled",
+             s"<p>Your consultation has been moved to $whenText. Sign in to your dashboard for details.</p>"
+           )
+      _ <- send(
+             surgeonEmail,
+             "A consultation has been rescheduled",
+             s"<p>A consultation on your calendar has been moved to $whenText. Sign in to your dashboard for details.</p>"
+           )
+    } yield ()
+  }
 }

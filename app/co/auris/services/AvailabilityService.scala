@@ -21,14 +21,21 @@ class AvailabilityService @Inject() (
 
   private val SlotDurationMinutes = 60
 
-  def availableSlots(surgeonId: UUID, from: LocalDate, to: LocalDate): Future[List[AvailableDay]] = {
+  /** excludeBookingId lets a booking being rescheduled see its own current
+    * slot as free, instead of being blocked out by itself. */
+  def availableSlots(
+                      surgeonId:        UUID,
+                      from:             LocalDate,
+                      to:               LocalDate,
+                      excludeBookingId: Option[UUID] = None
+                    ): Future[List[AvailableDay]] = {
     val rangeStart = from.atStartOfDay(ZoneOffset.UTC).toOffsetDateTime
     val rangeEnd   = to.plusDays(1).atStartOfDay(ZoneOffset.UTC).toOffsetDateTime
 
     for {
       template <- availabilityRepository.listForSurgeon(surgeonId)
       blocked  <- availabilityRepository.listBlockedForSurgeonInRange(surgeonId, rangeStart, rangeEnd)
-      booked   <- bookingRepository.listActiveForSurgeonInRange(surgeonId, rangeStart, rangeEnd)
+      booked   <- bookingRepository.listActiveForSurgeonInRange(surgeonId, rangeStart, rangeEnd, excludeBookingId)
     } yield {
       val occupied: List[(OffsetDateTime, OffsetDateTime)] =
         blocked.map(b => (b.blockedAt, b.blockedAt.plusMinutes(b.durationMins.toLong))) ++

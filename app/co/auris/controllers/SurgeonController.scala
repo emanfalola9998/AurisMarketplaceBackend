@@ -75,6 +75,7 @@ class SurgeonController @Inject() (
     val today    = LocalDate.now()
     val fromDate = request.getQueryString("from").flatMap(parseDate).getOrElse(today)
     val toDate   = request.getQueryString("to").flatMap(parseDate).getOrElse(fromDate.plusDays(13))
+    val excludeBookingId = request.getQueryString("excludeBookingId").flatMap(s => Try(UUID.fromString(s)).toOption)
 
     if (toDate.isBefore(fromDate)) {
       Future.successful(BadRequest(apiError("VALIDATION_ERROR", "'to' must not be before 'from'.")))
@@ -84,7 +85,7 @@ class SurgeonController @Inject() (
       surgeonRepository.findById(id).flatMap {
         case None    => Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon not found.")))
         case Some(_) =>
-          availabilityService.availableSlots(id, fromDate, toDate).map { days =>
+          availabilityService.availableSlots(id, fromDate, toDate, excludeBookingId).map { days =>
             Ok(Json.obj("items" -> Json.toJson(days)))
           }
       }
