@@ -4,7 +4,7 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
-import co.auris.repositories.{AuditLogRepository, BookingRepository, SurgeonRepository, UserRepository}
+import co.auris.repositories.{AuditLogRepository, BookingRepository, PatientRepository, SurgeonRepository, UserRepository}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -19,6 +19,7 @@ class AdminController @Inject() (
                                   surgeonRepository:   SurgeonRepository,
                                   userRepository:      UserRepository,
                                   bookingRepository:   BookingRepository,
+                                  patientRepository:   PatientRepository,
                                   auditLogRepository:  AuditLogRepository
                                 )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
@@ -177,13 +178,17 @@ class AdminController @Inject() (
 
   def analytics: Action[AnyContent] = authAction.async { implicit request =>
     request.requireAdmin {
-      // Stub — wire to aggregation queries once full analytics are needed
-      Future.successful(Ok(Json.obj(
-        "pendingApplications" -> 0,
-        "activeSurgeons"      -> 0,
-        "totalBookings"       -> 0,
-        "totalPatients"       -> 0
-      )))
+      for {
+        pendingApplications <- surgeonRepository.countApplicationsByStatus(ApplicationStatus.Pending)
+        activeSurgeons      <- surgeonRepository.countActiveSurgeons()
+        totalBookings       <- bookingRepository.countAll()
+        totalPatients       <- patientRepository.countAll()
+      } yield Ok(Json.obj(
+        "pendingApplications" -> pendingApplications,
+        "activeSurgeons"      -> activeSurgeons,
+        "totalBookings"       -> totalBookings,
+        "totalPatients"       -> totalPatients
+      ))
     }
   }
 

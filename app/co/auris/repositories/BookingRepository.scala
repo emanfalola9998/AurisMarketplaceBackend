@@ -142,6 +142,9 @@ class BookingRepository @Inject() (
   def findBookingById(id: UUID): Future[Option[Booking]] =
     db.run(Bookings.filter(_.id === id).result.headOption)
 
+  def countAll(): Future[Int] =
+    db.run(Bookings.length.result)
+
   def listBookingsForPatient(
                               patientId: UUID,
                               status:    Option[BookingStatus] = None

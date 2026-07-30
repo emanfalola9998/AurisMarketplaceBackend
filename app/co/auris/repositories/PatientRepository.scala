@@ -27,6 +27,9 @@ class PatientRepository @Inject() (
   def findById(id: UUID): Future[Option[PatientProfile]] =
     db.run(PatientProfiles.filter(_.id === id).result.headOption)
 
+  def countAll(): Future[Int] =
+    db.run(PatientProfiles.length.result)
+
   /** Creates a minimal profile row immediately after sign-up. */
   def createProfile(userId: UUID, email: String): Future[PatientProfile] = {
     val now = OffsetDateTime.now(ZoneOffset.UTC)

@@ -4,7 +4,7 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
-import co.auris.repositories.{NewAvailabilitySlot, SurgeonAvailabilityRepository, SurgeonRepository}
+import co.auris.repositories.{BookingRepository, NewAvailabilitySlot, SurgeonAvailabilityRepository, SurgeonRepository}
 import co.auris.services.{AvailabilityService, StorageError, StorageService, SurgeonError, SurgeonService}
 import play.api.libs.json._
 import play.api.mvc._
@@ -23,6 +23,7 @@ class SurgeonController @Inject() (
                                     surgeonRepository:           SurgeonRepository,
                                     availabilityRepository:      SurgeonAvailabilityRepository,
                                     availabilityService:         AvailabilityService,
+                                    bookingRepository:           BookingRepository,
                                     storageService:              StorageService
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
@@ -56,12 +57,16 @@ class SurgeonController @Inject() (
 
   // ─── GET /api/surgeons/:id/reviews ───────────────────────────────────────
 
-  def reviews(id: UUID): Action[AnyContent] = Action.async {
-    surgeonRepository.findById(id).map {
-      case None    => NotFound(apiError("NOT_FOUND", "Surgeon not found."))
+  def reviews(id: UUID): Action[AnyContent] = Action.async { implicit request =>
+    val page     = request.getQueryString("page").flatMap(_.toIntOption).filter(_ > 0).getOrElse(1)
+    val pageSize = request.getQueryString("pageSize").flatMap(_.toIntOption).filter(_ > 0).getOrElse(20)
+
+    surgeonRepository.findById(id).flatMap {
+      case None    => Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon not found.")))
       case Some(_) =>
-        // TODO: wire to ReviewRepository once built
-        Ok(Json.obj("items" -> JsArray(), "totalCount" -> 0, "page" -> 1, "pageSize" -> 20))
+        bookingRepository.listPublishedReviewsForSurgeon(id, page, pageSize).map { case (reviews, total) =>
+          Ok(Json.obj("items" -> Json.toJson(reviews), "totalCount" -> total, "page" -> page, "pageSize" -> pageSize))
+        }
     }
   }
 

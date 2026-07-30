@@ -198,6 +198,12 @@ class SurgeonRepository @Inject() (
         .result
     ).map(_.toList)
 
+  def countApplicationsByStatus(status: ApplicationStatus): Future[Int] =
+    db.run(SurgeonApplications.filter(_.status === status).length.result)
+
+  def countActiveSurgeons(): Future[Int] =
+    db.run(SurgeonProfiles.filter(_.profileLive === true).length.result)
+
   def updateApplicationStatus(
                                id:            UUID,
                                status:        ApplicationStatus,
