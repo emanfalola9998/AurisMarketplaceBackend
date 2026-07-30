@@ -138,6 +138,108 @@ class BookingService @Inject() (
       }
     } yield result
 
+  /** Counter-proposes a different date/time on a still-pending enquiry — the
+    * patient sees the updated preferred slot on their side; status is left
+    * Pending since this doesn't confirm anything by itself. */
+  def suggestAlternativeTime(
+                              surgeonUserId: UUID,
+                              enquiryId:     UUID,
+                              preferredDate: LocalDate,
+                              preferredTime: LocalTime,
+                              notes:         Option[String]
+                            ): Future[Either[BookingError, Enquiry]] =
+    for {
+      surgeonOpt <- surgeonRepository.findByUserId(surgeonUserId)
+      enquiryOpt <- bookingRepository.findEnquiryById(enquiryId)
+      result <- (surgeonOpt, enquiryOpt) match {
+        case (None, _) => Future.successful(Left(BookingError.SurgeonNotFound))
+        case (_, None) => Future.successful(Left(BookingError.NotFound))
+        case (Some(s), Some(e)) if s.id != e.surgeonId =>
+          Future.successful(Left(BookingError.Forbidden))
+        case (_, Some(e)) if e.status != EnquiryStatus.Pending =>
+          Future.successful(Left(BookingError.InvalidStatus))
+        case (_, Some(e)) =>
+          bookingRepository.updateEnquiryPreferredTime(e.id, preferredDate, preferredTime, notes.orElse(e.surgeonNotes)).flatMap { _ =>
+            notify(
+              patientRepository.findById(e.patientId).flatMap {
+                case Some(p) =>
+                  userRepository.findById(p.userId).flatMap {
+                    case Some(u) => notificationService.sendEnquiryTimeSuggested(u.email, preferredDate, preferredTime)
+                    case None    => Future.successful(())
+                  }
+                case None => Future.successful(())
+              }
+            ).flatMap { _ =>
+              bookingRepository.findEnquiryById(e.id).map {
+                case None          => Left(BookingError.NotFound)
+                case Some(updated) => Right(updated)
+              }
+            }
+          }
+      }
+    } yield result
+
+  def cancelConfirmedEnquiry(
+                              surgeonUserId: UUID,
+                              enquiryId:     UUID,
+                              notes:         Option[String]
+                            ): Future[Either[BookingError, Enquiry]] =
+    for {
+      surgeonOpt <- surgeonRepository.findByUserId(surgeonUserId)
+      enquiryOpt <- bookingRepository.findEnquiryById(enquiryId)
+      result <- (surgeonOpt, enquiryOpt) match {
+        case (None, _) => Future.successful(Left(BookingError.SurgeonNotFound))
+        case (_, None) => Future.successful(Left(BookingError.NotFound))
+        case (Some(s), Some(e)) if s.id != e.surgeonId =>
+          Future.successful(Left(BookingError.Forbidden))
+        case (_, Some(e)) if e.status != EnquiryStatus.Confirmed =>
+          Future.successful(Left(BookingError.InvalidStatus))
+        case (_, Some(e)) =>
+          bookingRepository.updateEnquiryStatus(e.id, EnquiryStatus.Cancelled, notes.orElse(e.surgeonNotes)).flatMap { _ =>
+            notify(
+              patientRepository.findById(e.patientId).flatMap {
+                case Some(p) =>
+                  userRepository.findById(p.userId).flatMap {
+                    case Some(u) => notificationService.sendEnquiryCancelled(u.email)
+                    case None    => Future.successful(())
+                  }
+                case None => Future.successful(())
+              }
+            ).flatMap { _ =>
+              bookingRepository.findEnquiryById(e.id).map {
+                case None          => Left(BookingError.NotFound)
+                case Some(updated) => Right(updated)
+              }
+            }
+          }
+      }
+    } yield result
+
+  /** Surgeon's own record-keeping notes on an enquiry — no status change, no
+    * patient notification. */
+  def addEnquiryNotes(
+                       surgeonUserId: UUID,
+                       enquiryId:     UUID,
+                       notes:         String
+                     ): Future[Either[BookingError, Enquiry]] =
+    for {
+      surgeonOpt <- surgeonRepository.findByUserId(surgeonUserId)
+      enquiryOpt <- bookingRepository.findEnquiryById(enquiryId)
+      result <- (surgeonOpt, enquiryOpt) match {
+        case (None, _) => Future.successful(Left(BookingError.SurgeonNotFound))
+        case (_, None) => Future.successful(Left(BookingError.NotFound))
+        case (Some(s), Some(e)) if s.id != e.surgeonId =>
+          Future.successful(Left(BookingError.Forbidden))
+        case (_, Some(e)) =>
+          bookingRepository.updateEnquiryNotes(e.id, notes).flatMap { _ =>
+            bookingRepository.findEnquiryById(e.id).map {
+              case None          => Left(BookingError.NotFound)
+              case Some(updated) => Right(updated)
+            }
+          }
+      }
+    } yield result
+
   // ─── Bookings ──────────────────────────────────────────────────────────────
 
   /** Creates a Pending booking and a matching Stripe PaymentIntent for its fee.

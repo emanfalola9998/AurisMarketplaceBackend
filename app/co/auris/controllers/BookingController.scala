@@ -4,6 +4,7 @@ package co.auris.controllers
 
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
+import co.auris.repositories.PatientRepository
 import co.auris.services.{BookingError, BookingService, BookingWithPayment}
 import play.api.libs.json._
 import play.api.mvc._
@@ -15,9 +16,10 @@ import scala.concurrent.{ExecutionContext, Future}
 
 @Singleton
 class BookingController @Inject() (
-                                    cc:             ControllerComponents,
-                                    authAction:     JwtAuthAction,
-                                    bookingService: BookingService
+                                    cc:                ControllerComponents,
+                                    authAction:        JwtAuthAction,
+                                    bookingService:    BookingService,
+                                    patientRepository: PatientRepository
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
@@ -71,8 +73,27 @@ class BookingController @Inject() (
     val status = request.getQueryString("status")
       .flatMap(s => EnquiryStatus.values.find(_.entryName == s))
 
-    bookingService.listEnquiries(request.userId, request.user.role, status).map { enquiries =>
-      Ok(Json.obj("items" -> Json.toJson(enquiries), "totalCount" -> enquiries.length))
+    bookingService.listEnquiries(request.userId, request.user.role, status).flatMap { enquiries =>
+      if (request.user.role == UserRole.Surgeon) {
+        // Enquiry.patientId is a patient-profile id, not a user id — messaging
+        // needs the latter, so enrich the response rather than adding a DB
+        // column nothing else needs.
+        Future.sequence(enquiries.map(_.patientId).distinct.map { patientId =>
+          patientRepository.findById(patientId).map(patientId -> _.map(_.userId))
+        }).map { pairs =>
+          val userIdByPatientId = pairs.collect { case (pid, Some(uid)) => pid -> uid }.toMap
+          val items = enquiries.map { e =>
+            val base = Json.toJson(e).as[JsObject]
+            userIdByPatientId.get(e.patientId) match {
+              case Some(uid) => base + ("patientUserId" -> Json.toJson(uid))
+              case None      => base
+            }
+          }
+          Ok(Json.obj("items" -> JsArray(items), "totalCount" -> enquiries.length))
+        }
+      } else {
+        Future.successful(Ok(Json.obj("items" -> Json.toJson(enquiries), "totalCount" -> enquiries.length)))
+      }
     }
   }
 
@@ -102,6 +123,69 @@ class BookingController @Inject() (
         case Left(BookingError.InvalidStatus) => Conflict(apiError("INVALID_STATUS", "Enquiry is no longer pending."))
         case Left(other)                      => InternalServerError(apiError("INTERNAL_ERROR", other.toString))
         case Right(enquiry)                   => Ok(Json.toJson(enquiry))
+      }
+    }
+  }
+
+  // ─── PUT /api/enquiries/:id/suggest-time ─────────────────────────────────
+
+  def suggestAlternativeTime(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
+    request.requireSurgeon {
+      val body = request.body
+      val parsed = for {
+        dateStr <- (body \ "preferredDate").asOpt[String]
+        date    <- scala.util.Try(LocalDate.parse(dateStr)).toOption
+        timeStr <- (body \ "preferredTime").asOpt[String]
+        time    <- scala.util.Try(LocalTime.parse(timeStr)).toOption
+      } yield (date, time)
+
+      parsed match {
+        case None =>
+          Future.successful(BadRequest(apiError("BAD_REQUEST", "preferredDate and preferredTime are required.")))
+
+        case Some((date, time)) =>
+          val notes = (body \ "notes").asOpt[String]
+          bookingService.suggestAlternativeTime(request.userId, id, date, time, notes).map {
+            case Left(BookingError.NotFound)      => NotFound(apiError("NOT_FOUND", "Enquiry not found."))
+            case Left(BookingError.Forbidden)     => Forbidden(apiError("FORBIDDEN", "Not your enquiry."))
+            case Left(BookingError.InvalidStatus) => Conflict(apiError("INVALID_STATUS", "Enquiry is no longer pending."))
+            case Left(other)                      => InternalServerError(apiError("INTERNAL_ERROR", other.toString))
+            case Right(enquiry)                   => Ok(Json.toJson(enquiry))
+          }
+      }
+    }
+  }
+
+  // ─── PUT /api/enquiries/:id/cancel ────────────────────────────────────────
+
+  def cancelEnquiry(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
+    request.requireSurgeon {
+      val notes = (request.body \ "notes").asOpt[String]
+      bookingService.cancelConfirmedEnquiry(request.userId, id, notes).map {
+        case Left(BookingError.NotFound)      => NotFound(apiError("NOT_FOUND", "Enquiry not found."))
+        case Left(BookingError.Forbidden)     => Forbidden(apiError("FORBIDDEN", "Not your enquiry."))
+        case Left(BookingError.InvalidStatus) => Conflict(apiError("INVALID_STATUS", "Only a confirmed enquiry can be cancelled."))
+        case Left(other)                      => InternalServerError(apiError("INTERNAL_ERROR", other.toString))
+        case Right(enquiry)                   => Ok(Json.toJson(enquiry))
+      }
+    }
+  }
+
+  // ─── PUT /api/enquiries/:id/notes ─────────────────────────────────────────
+
+  def addEnquiryNotes(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
+    request.requireSurgeon {
+      (request.body \ "notes").asOpt[String].filter(_.trim.nonEmpty) match {
+        case None =>
+          Future.successful(BadRequest(apiError("BAD_REQUEST", "notes is required.")))
+
+        case Some(notes) =>
+          bookingService.addEnquiryNotes(request.userId, id, notes).map {
+            case Left(BookingError.NotFound)  => NotFound(apiError("NOT_FOUND", "Enquiry not found."))
+            case Left(BookingError.Forbidden) => Forbidden(apiError("FORBIDDEN", "Not your enquiry."))
+            case Left(other)                  => InternalServerError(apiError("INTERNAL_ERROR", other.toString))
+            case Right(enquiry)                => Ok(Json.toJson(enquiry))
+          }
       }
     }
   }

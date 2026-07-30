@@ -10,7 +10,7 @@ package co.auris.services
 import play.api.Configuration
 import play.api.libs.mailer.{Email, MailerClient}
 
-import java.time.OffsetDateTime
+import java.time.{LocalDate, LocalTime, OffsetDateTime}
 import java.time.format.DateTimeFormatter
 import javax.inject.{Inject, Singleton}
 import scala.concurrent.{ExecutionContext, Future}
@@ -98,4 +98,21 @@ class NotificationService @Inject() (
            )
     } yield ()
   }
+
+  private val suggestedTimeFormat = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy")
+
+  def sendEnquiryTimeSuggested(patientEmail: String, preferredDate: LocalDate, preferredTime: LocalTime): Future[Unit] =
+    send(
+      patientEmail,
+      "The surgeon suggested a different time",
+      s"<p>The surgeon has suggested ${preferredDate.format(suggestedTimeFormat)} at $preferredTime instead for your " +
+        "consultation enquiry. Sign in to your Auris dashboard for details.</p>"
+    )
+
+  def sendEnquiryCancelled(patientEmail: String): Future[Unit] =
+    send(
+      patientEmail,
+      "Your confirmed enquiry was cancelled",
+      "<p>The surgeon has cancelled your confirmed consultation enquiry. Sign in to your Auris dashboard for details.</p>"
+    )
 }

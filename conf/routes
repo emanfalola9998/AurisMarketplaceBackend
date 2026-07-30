@@ -51,6 +51,9 @@ POST    /api/enquiries                  co.auris.controllers.BookingController.c
 GET     /api/enquiries                  co.auris.controllers.BookingController.listEnquiries
 PUT     /api/enquiries/:id/accept       co.auris.controllers.BookingController.acceptEnquiry(id: java.util.UUID)
 PUT     /api/enquiries/:id/decline      co.auris.controllers.BookingController.declineEnquiry(id: java.util.UUID)
+PUT     /api/enquiries/:id/suggest-time co.auris.controllers.BookingController.suggestAlternativeTime(id: java.util.UUID)
+PUT     /api/enquiries/:id/cancel       co.auris.controllers.BookingController.cancelEnquiry(id: java.util.UUID)
+PUT     /api/enquiries/:id/notes        co.auris.controllers.BookingController.addEnquiryNotes(id: java.util.UUID)
 
 # ─── Bookings ─────────────────────────────────────────────────────────────────
 

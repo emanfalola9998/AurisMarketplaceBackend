@@ -88,6 +88,29 @@ class BookingRepository @Inject() (
         .update((status, surgeonNotes, OffsetDateTime.now(ZoneOffset.UTC)))
     )
 
+  /** Counter-proposes a different date/time on a still-pending enquiry —
+    * status is left untouched, since this doesn't confirm anything by itself. */
+  def updateEnquiryPreferredTime(
+                                  id:            UUID,
+                                  preferredDate: java.time.LocalDate,
+                                  preferredTime: java.time.LocalTime,
+                                  surgeonNotes:  Option[String]
+                                ): Future[Int] =
+    db.run(
+      Enquiries
+        .filter(_.id === id)
+        .map(e => (e.preferredDate, e.preferredTime, e.surgeonNotes, e.updatedAt))
+        .update((Some(preferredDate), Some(preferredTime), surgeonNotes, OffsetDateTime.now(ZoneOffset.UTC)))
+    )
+
+  def updateEnquiryNotes(id: UUID, surgeonNotes: String): Future[Int] =
+    db.run(
+      Enquiries
+        .filter(_.id === id)
+        .map(e => (e.surgeonNotes, e.updatedAt))
+        .update((Some(surgeonNotes), OffsetDateTime.now(ZoneOffset.UTC)))
+    )
+
   // ─── Bookings ──────────────────────────────────────────────────────────────
 
   def createBooking(
