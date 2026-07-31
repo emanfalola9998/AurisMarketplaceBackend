@@ -3,7 +3,7 @@
 package co.auris.services
 
 import co.auris.models._
-import co.auris.repositories.{PatientRepository, SurgeonRepository, UserRepository}
+import co.auris.repositories.{BookingRepository, PatientRepository, SurgeonRepository, UserRepository}
 import co.auris.support.Fixtures
 import org.mindrot.jbcrypt.BCrypt
 import org.mockito.{ArgumentMatchersSugar, MockitoSugar}
@@ -28,6 +28,7 @@ class AuthServiceSpec extends AnyWordSpec
   private var userRepository:    UserRepository    = _
   private var patientRepository: PatientRepository = _
   private var surgeonRepository: SurgeonRepository = _
+  private var bookingRepository: BookingRepository = _
   private var jwtService:        JwtService        = _
   private var notificationService: NotificationService = _
   private var service: AuthService = _
@@ -39,10 +40,11 @@ class AuthServiceSpec extends AnyWordSpec
     userRepository       = mock[UserRepository]
     patientRepository    = mock[PatientRepository]
     surgeonRepository    = mock[SurgeonRepository]
+    bookingRepository    = mock[BookingRepository]
     jwtService           = mock[JwtService]
     notificationService  = mock[NotificationService]
     service = new AuthService(
-      userRepository, patientRepository, surgeonRepository,
+      userRepository, patientRepository, surgeonRepository, bookingRepository,
       jwtService, notificationService, testConfig
     )
 

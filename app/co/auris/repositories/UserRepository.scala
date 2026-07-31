@@ -81,6 +81,19 @@ class UserRepository @Inject() (
         .update((active, OffsetDateTime.now(ZoneOffset.UTC)))
     )
 
+  /** Account deletion: deactivates the user and frees up their real email
+    * (unique constraint) behind a placeholder so it can be reused for a
+    * future sign-up. The row itself is kept — bookings/reviews/enquiries
+    * reference it with no ON DELETE CASCADE, so a hard delete would fail
+    * with a foreign key violation the moment any history exists. */
+  def deactivateAndAnonymizeEmail(userId: UUID, anonymizedEmail: String): Future[Int] =
+    db.run(
+      Users
+        .filter(_.id === userId)
+        .map(u => (u.isActive, u.email, u.updatedAt))
+        .update((false, anonymizedEmail, OffsetDateTime.now(ZoneOffset.UTC)))
+    )
+
   def emailExists(email: String): Future[Boolean] =
     db.run(
       Users.filter(_.email === email.toLowerCase.trim).exists.result

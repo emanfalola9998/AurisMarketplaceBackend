@@ -44,6 +44,7 @@ GET     /api/patients/dashboard         co.auris.controllers.PatientController.d
 GET     /api/patients/saved             co.auris.controllers.PatientController.savedSurgeons
 POST    /api/patients/saved/:surgeonId  co.auris.controllers.PatientController.saveSurgeon(surgeonId: java.util.UUID)
 DELETE  /api/patients/saved/:surgeonId  co.auris.controllers.PatientController.unsaveSurgeon(surgeonId: java.util.UUID)
+DELETE  /api/patients/account           co.auris.controllers.PatientController.deleteAccount
 
 # ─── Enquiries ────────────────────────────────────────────────────────────────
 

@@ -154,6 +154,23 @@ class BookingRepository @Inject() (
     db.run(q.sortBy(_.scheduledAt.desc).result).map(_.toList)
   }
 
+  /** Account deletion: a deleted patient can't attend anything still on the
+    * books, so cancel it on their behalf rather than leaving the surgeon
+    * expecting someone who's gone. */
+  def cancelAllFutureActiveForPatient(patientId: UUID): Future[Int] = {
+    val now = OffsetDateTime.now(ZoneOffset.UTC)
+    db.run(
+      Bookings
+        .filter { b =>
+          b.patientId === patientId &&
+          b.scheduledAt > now &&
+          !b.status.inSet(InactiveStatuses)
+        }
+        .map(b => (b.status, b.cancelledAt, b.cancellationNote, b.updatedAt))
+        .update((BookingStatus.CancelledByPatient, Some(now), Some("Account deleted"), now))
+    )
+  }
+
   def listBookingsForSurgeon(
                               surgeonId: UUID,
                               status:    Option[BookingStatus] = None
@@ -165,6 +182,9 @@ class BookingRepository @Inject() (
 
   private val CancelledStatuses: Set[BookingStatus] =
     Set(BookingStatus.CancelledByPatient, BookingStatus.CancelledBySurgeon)
+
+  private val InactiveStatuses: Set[BookingStatus] =
+    CancelledStatuses + BookingStatus.Completed
 
   /** Active (not cancelled) bookings whose scheduled window falls in [from, to).
     * excludeBookingId lets a booking being rescheduled ignore its own current

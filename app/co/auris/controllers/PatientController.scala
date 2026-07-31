@@ -5,6 +5,7 @@ package co.auris.controllers
 import co.auris.actions.JwtAuthAction
 import co.auris.models._
 import co.auris.repositories.{PatientRepository, SurgeonRepository}
+import co.auris.services.{AuthError, AuthService}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -17,7 +18,8 @@ class PatientController @Inject() (
                                     cc:                ControllerComponents,
                                     authAction:        JwtAuthAction,
                                     patientRepository: PatientRepository,
-                                    surgeonRepository: SurgeonRepository
+                                    surgeonRepository: SurgeonRepository,
+                                    authService:       AuthService
                                   )(implicit ec: ExecutionContext)
   extends AbstractController(cc) {
 
@@ -135,6 +137,31 @@ class PatientController @Inject() (
         case Some(profile) =>
           patientRepository.unsaveSurgeon(profile.id, surgeonId).map { _ =>
             NoContent
+          }
+      }
+    }
+  }
+
+  // ─── DELETE /api/patients/account ─────────────────────────────────────────
+
+  def deleteAccount: Action[JsValue] = authAction(parse.json).async { implicit request =>
+    request.requirePatient {
+      (request.body \ "password").asOpt[String].filter(_.nonEmpty) match {
+        case None =>
+          Future.successful(BadRequest(apiError("BAD_REQUEST", "password is required.")))
+
+        case Some(password) =>
+          authService.deleteAccount(request.userId, password).map {
+            case Left(AuthError.InvalidCredentials) =>
+              Unauthorized(apiError("INVALID_CREDENTIALS", "Incorrect password."))
+            case Left(AuthError.UserNotFound) =>
+              NotFound(apiError("NOT_FOUND", "Account not found."))
+            case Left(AuthError.RoleNotSupported) =>
+              Forbidden(apiError("ROLE_NOT_SUPPORTED", "Account deletion isn't available for this account type."))
+            case Left(other) =>
+              InternalServerError(apiError("INTERNAL_ERROR", other.toString))
+            case Right(()) =>
+              Ok(Json.obj("message" -> "Account deleted."))
           }
       }
     }

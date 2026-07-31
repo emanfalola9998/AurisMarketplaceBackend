@@ -17,7 +17,7 @@
 package co.auris.services
 
 import co.auris.models._
-import co.auris.repositories.{PatientRepository, SurgeonRepository, UserRepository}
+import co.auris.repositories.{BookingRepository, PatientRepository, SurgeonRepository, UserRepository}
 import org.mindrot.jbcrypt.BCrypt
 import play.api.Configuration
 
@@ -35,6 +35,7 @@ object AuthError {
   case object UserInactive             extends AuthError
   case object InvalidToken             extends AuthError
   case object TokenExpired             extends AuthError
+  case object RoleNotSupported         extends AuthError
   case class  Unexpected(msg: String)  extends AuthError
 }
 
@@ -53,6 +54,7 @@ class AuthService @Inject() (
                               userRepository:      UserRepository,
                               patientRepository:   PatientRepository,
                               surgeonRepository:   SurgeonRepository,
+                              bookingRepository:   BookingRepository,
                               jwtService:          JwtService,
                               notificationService: NotificationService,
                               config:              Configuration
@@ -163,6 +165,43 @@ class AuthService @Inject() (
 
   def signOutAll(userId: UUID): Future[Unit] =
     userRepository.revokeAllRefreshTokensForUser(userId).map(_ => ())
+
+  // ─── Account deletion ──────────────────────────────────────────────────────
+  //
+  // Patient-only for now (the only role with a "Delete account" button).
+  // This is a soft delete: bookings/enquiries/reviews reference the profile
+  // row with no ON DELETE CASCADE, so a hard delete of the user or patient
+  // row would fail with a foreign key violation the moment any booking
+  // history exists. Instead: verify the password, cancel anything still
+  // scheduled, wipe personal fields, deactivate the account, and free up
+  // the email behind a placeholder so it can be reused for a fresh sign-up.
+
+  def deleteAccount(userId: UUID, password: String): Future[Either[AuthError, Unit]] =
+    userRepository.findById(userId).flatMap {
+      case None =>
+        Future.successful(Left(AuthError.UserNotFound))
+
+      case Some(user) if user.role != UserRole.Patient =>
+        Future.successful(Left(AuthError.RoleNotSupported))
+
+      case Some(user) if !BCrypt.checkpw(password, user.passwordHash) =>
+        Future.successful(Left(AuthError.InvalidCredentials))
+
+      case Some(user) =>
+        patientRepository.findByUserId(user.id).flatMap {
+          case None =>
+            Future.successful(Left(AuthError.UserNotFound))
+
+          case Some(patient) =>
+            val anonymizedEmail = s"deleted-${user.id}@deleted.auris.co"
+            for {
+              _ <- bookingRepository.cancelAllFutureActiveForPatient(patient.id)
+              _ <- userRepository.revokeAllRefreshTokensForUser(user.id)
+              _ <- patientRepository.anonymize(patient.id)
+              _ <- userRepository.deactivateAndAnonymizeEmail(user.id, anonymizedEmail)
+            } yield Right(())
+        }
+    }
 
   // ─── Email verification ──────────────────────────────────────────────────────
 

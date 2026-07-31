@@ -96,6 +96,24 @@ class PatientRepository @Inject() (
         .update((Some(avatarUrl), OffsetDateTime.now(ZoneOffset.UTC)))
     )
 
+  /** Account deletion: clears personal fields but keeps the row, since
+    * bookings/enquiries/reviews reference it (no ON DELETE CASCADE). */
+  def anonymize(id: UUID): Future[Int] =
+    db.run(
+      PatientProfiles
+        .filter(_.id === id)
+        .map(p => (
+          p.firstName, p.lastName, p.dateOfBirth, p.phone, p.avatarUrl,
+          p.procedureInterests, p.locationPreference, p.consultPreference,
+          p.budgetRange, p.timeline, p.updatedAt
+        ))
+        .update((
+          "Deleted", "", None, None, None,
+          Nil, None, None,
+          None, None, OffsetDateTime.now(ZoneOffset.UTC)
+        ))
+    )
+
   // ─── Saved surgeons ────────────────────────────────────────────────────────
 
   def savedSurgeonIds(patientId: UUID): Future[List[UUID]] =
