@@ -5,9 +5,10 @@
 
 package co.auris.controllers
 
-import co.auris.models.ConsultationType
-import co.auris.repositories.{BookingRepository, SurgeonRepository}
+import co.auris.models.{ConsultationType, UserRole}
+import co.auris.repositories.{BookingRepository, SurgeonRepository, UserRepository}
 import co.auris.support.PlayIntegrationSpec
+import org.mindrot.jbcrypt.BCrypt
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.libs.json.Json
@@ -30,6 +31,21 @@ class AdminAnalyticsSpec extends AnyWordSpec with Matchers with PlayIntegrationS
 
   private def await[T](f: Future[T]): T = Await.result(f, 10.seconds)
 
+  // Admin accounts aren't self-registrable via POST /api/auth/sign-up (see
+  // AuthControllerSpec's "reject role: admin" regression test) — provision
+  // one directly, the same way it'd be done in production, then sign in
+  // normally to get a real token.
+  private def signUpAdminAndSignIn(email: String, password: String = "password123"): String = {
+    val userRepository = app.injector.instanceOf[UserRepository]
+    val passwordHash = BCrypt.hashpw(password, BCrypt.gensalt(4))
+    await(userRepository.create(email, passwordHash, UserRole.Admin))
+
+    val res = route(app, FakeRequest(POST, "/api/auth/sign-in")
+      .withJsonBody(Json.obj("email" -> email, "password" -> password))).get
+    status(res) mustBe OK
+    (contentAsJson(res) \ "accessToken").as[String]
+  }
+
   private def surgeonProfileId(accessToken: String): UUID = {
     val res = route(app, FakeRequest(GET, "/api/surgeons/dashboard")
       .withHeaders("Authorization" -> s"Bearer $accessToken")).get
@@ -46,7 +62,7 @@ class AdminAnalyticsSpec extends AnyWordSpec with Matchers with PlayIntegrationS
 
   "GET /api/admin/analytics" should {
     "return real aggregate counts" in {
-      val adminToken = signUp("analytics-admin@example.com", "admin")
+      val adminToken = signUpAdminAndSignIn("analytics-admin@example.com")
 
       val patient1Token = signUp("analytics-patient1@example.com", "patient")
       val patient2Token = signUp("analytics-patient2@example.com", "patient")

@@ -72,6 +72,18 @@ class AuthControllerSpec extends AnyWordSpec with Matchers with PlayIntegrationS
       (contentAsJson(res) \ "code").as[String] mustBe "WEAK_PASSWORD"
     }
 
+    // Regression test: this endpoint used to accept role: "admin" from
+    // anyone with no restriction at all — a genuine self-service admin
+    // account takeover. Admin accounts must be provisioned directly in the
+    // database instead.
+    "reject role: admin — admin accounts aren't self-registrable" in {
+      val res = route(app, FakeRequest(POST, "/api/auth/sign-up")
+        .withJsonBody(signUpBody("wannabe-admin@example.com", role = "admin"))).get
+
+      status(res) mustBe FORBIDDEN
+      (contentAsJson(res) \ "code").as[String] mustBe "ROLE_NOT_ALLOWED"
+    }
+
     "reject a malformed request body" in {
       val res = route(app, FakeRequest(POST, "/api/auth/sign-up")
         .withJsonBody(Json.obj("email" -> "no-password-or-role@example.com"))).get

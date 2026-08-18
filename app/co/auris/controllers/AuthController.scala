@@ -80,7 +80,15 @@ class AuthController @Inject() (
         Future.successful(BadRequest(validationError(errors)))
 
       case JsSuccess(req, _) =>
-        if (req.password.length < 8) {
+        if (req.role == UserRole.Admin) {
+          // Admin accounts are provisioned directly in the database, never
+          // through public sign-up — see the ops runbook. Without this,
+          // anyone could self-register with "role": "admin" and get full
+          // admin panel access; nothing else on this endpoint checked it.
+          Future.successful(
+            Forbidden(apiError("ROLE_NOT_ALLOWED", "Admin accounts cannot be created via sign-up."))
+          )
+        } else if (req.password.length < 8) {
           Future.successful(
             BadRequest(apiError("WEAK_PASSWORD", "Password must be at least 8 characters."))
           )
