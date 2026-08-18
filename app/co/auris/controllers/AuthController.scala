@@ -17,7 +17,7 @@
 
 package co.auris.controllers
 
-import co.auris.actions.JwtAuthAction
+import co.auris.actions.{JwtAuthAction, RateLimitAction}
 import co.auris.models._
 import co.auris.repositories.{PatientRepository, SurgeonRepository}
 import co.auris.services.{AuthError, AuthService}
@@ -31,6 +31,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class AuthController @Inject() (
                                  cc:                ControllerComponents,
                                  authAction:        JwtAuthAction,
+                                 rateLimitAction:   RateLimitAction,
                                  authService:       AuthService,
                                  patientRepository: PatientRepository,
                                  surgeonRepository: SurgeonRepository
@@ -39,7 +40,7 @@ class AuthController @Inject() (
 
   // ─── POST /api/auth/sign-in ────────────────────────────────────────────────
 
-  def signIn: Action[JsValue] = Action(parse.json).async { implicit request =>
+  def signIn: Action[JsValue] = (Action(parse.json) andThen rateLimitAction("signIn")).async { implicit request =>
     request.body.validate[SignInRequest] match {
       case JsError(errors) =>
         Future.successful(BadRequest(validationError(errors)))
@@ -74,7 +75,7 @@ class AuthController @Inject() (
 
   // ─── POST /api/auth/sign-up ────────────────────────────────────────────────
 
-  def signUp: Action[JsValue] = Action(parse.json).async { implicit request =>
+  def signUp: Action[JsValue] = (Action(parse.json) andThen rateLimitAction("signUp")).async { implicit request =>
     request.body.validate[SignUpRequest] match {
       case JsError(errors) =>
         Future.successful(BadRequest(validationError(errors)))
@@ -198,7 +199,7 @@ class AuthController @Inject() (
 
   // ─── POST /api/auth/forgot-password ───────────────────────────────────────
 
-  def forgotPassword: Action[JsValue] = Action(parse.json).async { implicit request =>
+  def forgotPassword: Action[JsValue] = (Action(parse.json) andThen rateLimitAction("forgotPassword")).async { implicit request =>
     (request.body \ "email").asOpt[String] match {
       case None =>
         Future.successful(BadRequest(apiError("BAD_REQUEST", "email is required.")))
@@ -213,7 +214,7 @@ class AuthController @Inject() (
 
   // ─── POST /api/auth/reset-password ────────────────────────────────────────
 
-  def resetPassword: Action[JsValue] = Action(parse.json).async { implicit request =>
+  def resetPassword: Action[JsValue] = (Action(parse.json) andThen rateLimitAction("resetPassword")).async { implicit request =>
     val tokenOpt    = (request.body \ "token").asOpt[String]
     val passwordOpt = (request.body \ "newPassword").asOpt[String]
 

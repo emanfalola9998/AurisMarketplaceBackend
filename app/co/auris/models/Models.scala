@@ -533,4 +533,5 @@ object ApiError {
   val NotFound:      ApiError = ApiError("NOT_FOUND",      "The requested resource was not found.")
   val InternalError: ApiError = ApiError("INTERNAL_ERROR", "An unexpected error occurred.")
   val InvalidToken:  ApiError = ApiError("INVALID_TOKEN",  "The provided token is invalid or expired.")
+  val RateLimited:   ApiError = ApiError("RATE_LIMITED",   "Too many attempts. Please try again later.")
 }
