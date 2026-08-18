@@ -1,0 +1,53 @@
+# ─── .github/workflows/ci.yml ─────────────────────────────────────────────────
+#
+# Runs the full sbt test suite (including Postgres-backed integration specs —
+# see PlayIntegrationSpec) against a throwaway "auris" role / "auris_test"
+# database provided by the postgres service container below.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: auris
+          POSTGRES_PASSWORD: auris_ci
+          POSTGRES_DB: auris_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Picked up by application.conf's ${?DATABASE_PASSWORD} override —
+      # matches the postgres service's POSTGRES_PASSWORD above. User/URL/DB
+      # name are already hardcoded in conf/application.test.conf.
+      DATABASE_PASSWORD: auris_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - uses: sbt/setup-sbt@v1
+
+      - name: Run tests
+        run: sbt test
