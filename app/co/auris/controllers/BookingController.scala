@@ -2,7 +2,7 @@
 
 package co.auris.controllers
 
-import co.auris.actions.JwtAuthAction
+import co.auris.actions.{JwtAuthAction, RateLimitAction}
 import co.auris.models._
 import co.auris.repositories.PatientRepository
 import co.auris.services.{BookingError, BookingService, BookingWithPayment}
@@ -18,6 +18,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class BookingController @Inject() (
                                     cc:                ControllerComponents,
                                     authAction:        JwtAuthAction,
+                                    rateLimitAction:   RateLimitAction,
                                     bookingService:    BookingService,
                                     patientRepository: PatientRepository
                                   )(implicit ec: ExecutionContext)
@@ -25,7 +26,8 @@ class BookingController @Inject() (
 
   // ─── POST /api/enquiries ──────────────────────────────────────────────────
 
-  def createEnquiry: Action[JsValue] = authAction(parse.json).async { implicit request =>
+  def createEnquiry: Action[JsValue] =
+    (Action(parse.json) andThen rateLimitAction("enquiryCreate") andThen authAction).async { implicit request =>
     request.requirePatient {
       val body = request.body
       (body \ "surgeonId").asOpt[String].flatMap(s => scala.util.Try(UUID.fromString(s)).toOption) match {
@@ -192,7 +194,8 @@ class BookingController @Inject() (
 
   // ─── POST /api/bookings ───────────────────────────────────────────────────
 
-  def createBooking: Action[JsValue] = authAction(parse.json).async { implicit request =>
+  def createBooking: Action[JsValue] =
+    (Action(parse.json) andThen rateLimitAction("bookingCreate") andThen authAction).async { implicit request =>
     request.requirePatient {
       val body = request.body
       val parsed = for {
@@ -291,7 +294,8 @@ class BookingController @Inject() (
 
   // ─── POST /api/reviews ────────────────────────────────────────────────────
 
-  def createReview: Action[JsValue] = authAction(parse.json).async { implicit request =>
+  def createReview: Action[JsValue] =
+    (Action(parse.json) andThen rateLimitAction("reviewCreate") andThen authAction).async { implicit request =>
     request.requirePatient {
       val body = request.body
       val parsed = for {

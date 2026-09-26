@@ -2,7 +2,7 @@
 
 package co.auris.controllers
 
-import co.auris.actions.JwtAuthAction
+import co.auris.actions.{JwtAuthAction, RateLimitAction}
 import co.auris.models._
 import co.auris.repositories.{MessageRepository, UserRepository}
 import play.api.libs.json._
@@ -16,6 +16,7 @@ import scala.concurrent.{ExecutionContext, Future}
 class MessageController @Inject() (
                                     cc:                ControllerComponents,
                                     authAction:        JwtAuthAction,
+                                    rateLimitAction:   RateLimitAction,
                                     messageRepository: MessageRepository,
                                     userRepository:    UserRepository
                                   )(implicit ec: ExecutionContext)
@@ -49,7 +50,8 @@ class MessageController @Inject() (
 
   // ─── POST /api/messages ───────────────────────────────────────────────────
 
-  def send: Action[JsValue] = authAction(parse.json).async { implicit request =>
+  def send: Action[JsValue] =
+    (Action(parse.json) andThen rateLimitAction("messageSend") andThen authAction).async { implicit request =>
     val body = request.body
     val parsed = for {
       recipientIdStr <- (body \ "recipientId").asOpt[String]
