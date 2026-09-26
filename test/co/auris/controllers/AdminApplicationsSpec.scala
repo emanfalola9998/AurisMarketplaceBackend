@@ -97,6 +97,7 @@ class AdminApplicationsSpec extends AnyWordSpec with Matchers with PlayIntegrati
       val json = contentAsJson(res)
       (json \ "application" \ "id").as[String] mustBe appId.toString
       (json \ "surgeon").isDefined mustBe true
+      (json \ "history").as[List[play.api.libs.json.JsObject]] mustBe empty
     }
 
     "return 404 for an application that doesn't exist" in {
@@ -106,6 +107,36 @@ class AdminApplicationsSpec extends AnyWordSpec with Matchers with PlayIntegrati
         .withHeaders("Authorization" -> s"Bearer $adminToken")).get
 
       status(res) mustBe NOT_FOUND
+    }
+
+    "includes a history entry for every review action, newest first, with the reviewer's email" in {
+      val adminEmail = "apps-history-admin1@example.com"
+      val adminToken = signUpAdminAndSignIn(adminEmail)
+      val surgeonToken = signUp("apps-history-surgeon1@example.com", "surgeon")
+      val appId = submitApplication(surgeonToken)
+
+      status(route(app, FakeRequest(PUT, s"/api/admin/applications/$appId/request-info")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")
+        .withJsonBody(Json.obj("notes" -> "Please clarify your indemnity cover.", "flags" -> Json.arr("indemnity_unclear")))).get) mustBe OK
+
+      status(route(app, FakeRequest(PUT, s"/api/admin/applications/$appId/reject")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")
+        .withJsonBody(Json.obj("notes" -> "Never followed up."))).get) mustBe OK
+
+      val res = route(app, FakeRequest(GET, s"/api/admin/applications/$appId")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")).get
+
+      status(res) mustBe OK
+      val history = (contentAsJson(res) \ "history").as[List[play.api.libs.json.JsObject]]
+      history must have size 2
+
+      // Newest first: the rejection is the most recent action.
+      (history.head \ "action").as[String] mustBe "application_rejected"
+      (history.head \ "actorEmail").as[String] mustBe adminEmail
+      (history.head \ "metadata" \ "notes").as[String] mustBe "Never followed up."
+
+      (history(1) \ "action").as[String] mustBe "application_more_info_requested"
+      (history(1) \ "metadata" \ "flags").as[List[String]] mustBe List("indemnity_unclear")
     }
   }
 

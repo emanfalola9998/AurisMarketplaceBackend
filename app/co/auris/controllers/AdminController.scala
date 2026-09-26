@@ -51,13 +51,16 @@ class AdminController @Inject() (
           Future.successful(NotFound(apiError("NOT_FOUND", "Application not found.")))
 
         case Some(app) =>
-          surgeonRepository.findById(app.surgeonId).map {
-            case None         => NotFound(apiError("NOT_FOUND", "Surgeon profile not found."))
+          surgeonRepository.findById(app.surgeonId).flatMap {
+            case None => Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon profile not found.")))
             case Some(surgeon) =>
-              Ok(Json.obj(
-                "application" -> Json.toJson(app),
-                "surgeon"     -> Json.toJson(surgeon)
-              ))
+              historyFor("surgeon_application", app.id).map { history =>
+                Ok(Json.obj(
+                  "application" -> Json.toJson(app),
+                  "surgeon"     -> Json.toJson(surgeon),
+                  "history"     -> history
+                ))
+              }
           }
       }
     }
@@ -104,7 +107,8 @@ class AdminController @Inject() (
               app.id, ApplicationStatus.Rejected,
               Some(request.userId), notes, flags, app.score
             )
-            _ <- logAudit(request.userId, "application_rejected", "surgeon_application", app.id)
+            _ <- logAudit(request.userId, "application_rejected", "surgeon_application", app.id,
+              Some(Json.obj("notes" -> notes, "flags" -> flags)))
           } yield Ok(Json.obj("message" -> "Application rejected."))
       }
     }
@@ -127,6 +131,8 @@ class AdminController @Inject() (
               app.id, ApplicationStatus.MoreInfoRequired,
               Some(request.userId), notes, flags, app.score
             )
+            _ <- logAudit(request.userId, "application_more_info_requested", "surgeon_application", app.id,
+              Some(Json.obj("notes" -> notes, "flags" -> flags)))
           } yield Ok(Json.obj("message" -> "More information requested from the surgeon."))
       }
     }
@@ -198,9 +204,29 @@ class AdminController @Inject() (
                         actorId:    UUID,
                         action:     String,
                         targetType: String,
-                        targetId:   UUID
+                        targetId:   UUID,
+                        metadata:   Option[JsValue] = None
                       )(implicit request: RequestHeader): Future[Unit] =
-    auditLogRepository.log(actorId, action, targetType, targetId, ipAddress = Some(request.remoteAddress)).map(_ => ())
+    auditLogRepository.log(actorId, action, targetType, targetId, metadata, ipAddress = Some(request.remoteAddress)).map(_ => ())
+
+  /** Enriches raw audit_log rows with the actor's email — actorId alone
+   *  isn't useful to display in an admin UI.
+   */
+  private def historyFor(targetType: String, targetId: UUID): Future[JsArray] =
+    auditLogRepository.listForTarget(targetType, targetId).flatMap { entries =>
+      Future.traverse(entries) { entry =>
+        userRepository.findById(entry.actorId).map { actorOpt =>
+          val actorEmail: String = actorOpt.map(_.email).getOrElse("Unknown")
+          Json.obj(
+            "id"         -> entry.id,
+            "action"     -> entry.action,
+            "actorEmail" -> actorEmail,
+            "metadata"   -> entry.metadata,
+            "createdAt"  -> entry.createdAt
+          )
+        }
+      }
+    }.map(JsArray(_))
 
   private def apiError(code: String, message: String): JsValue =
     Json.toJson(ApiError(code, message))
