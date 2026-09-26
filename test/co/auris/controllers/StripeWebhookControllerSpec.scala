@@ -103,6 +103,57 @@ class StripeWebhookControllerSpec extends AnyWordSpec with Matchers with PlayInt
       )
     ).toString
 
+  private def invoicePaymentFailedPayload(customerId: String): String =
+    Json.obj(
+      "id"          -> "evt_test_inv_failed",
+      "object"      -> "event",
+      "api_version" -> "2024-06-20",
+      "created"     -> (System.currentTimeMillis() / 1000),
+      "type"        -> "invoice.payment_failed",
+      "data" -> Json.obj(
+        "object" -> Json.obj(
+          "id"       -> "in_test_failed",
+          "object"   -> "invoice",
+          "customer" -> customerId,
+          "status"   -> "open"
+        )
+      )
+    ).toString
+
+  private def subscriptionDeletedPayload(customerId: String): String =
+    Json.obj(
+      "id"          -> "evt_test_sub_deleted",
+      "object"      -> "event",
+      "api_version" -> "2024-06-20",
+      "created"     -> (System.currentTimeMillis() / 1000),
+      "type"        -> "customer.subscription.deleted",
+      "data" -> Json.obj(
+        "object" -> Json.obj(
+          "id"       -> "sub_test123",
+          "object"   -> "subscription",
+          "customer" -> customerId,
+          "status"   -> "canceled"
+        )
+      )
+    ).toString
+
+  private def subscriptionUpdatedPayload(customerId: String, status: String): String =
+    Json.obj(
+      "id"          -> "evt_test_sub_updated",
+      "object"      -> "event",
+      "api_version" -> "2024-06-20",
+      "created"     -> (System.currentTimeMillis() / 1000),
+      "type"        -> "customer.subscription.updated",
+      "data" -> Json.obj(
+        "object" -> Json.obj(
+          "id"       -> "sub_test123",
+          "object"   -> "subscription",
+          "customer" -> customerId,
+          "status"   -> status
+        )
+      )
+    ).toString
+
   private def unrecognizedEventPayload: String =
     Json.obj(
       "id"          -> "evt_test_other",
@@ -183,6 +234,76 @@ class StripeWebhookControllerSpec extends AnyWordSpec with Matchers with PlayInt
 
     "acknowledge with 200 when invoice.paid's customer matches no surgeon" in {
       val payload = invoicePaidPayload("cus_unknown_customer")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+    }
+
+    "flag a surgeon as past due on invoice.payment_failed" in {
+      val surgeonToken = signUp("webhook-surgeon3@example.com", "surgeon")
+      val surgeonId = surgeonProfileId(surgeonToken)
+      val surgeonRepository = app.injector.instanceOf[SurgeonRepository]
+      await(surgeonRepository.setStripeCustomerId(surgeonId, "cus_test_webhook3"))
+      await(surgeonRepository.setSubscriptionStatus(surgeonId, SubscriptionStatus.Active, Some(OffsetDateTime.now(ZoneOffset.UTC).plusMonths(6))))
+
+      val payload = invoicePaymentFailedPayload("cus_test_webhook3")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+      val updated = await(surgeonRepository.findById(surgeonId)).get
+      updated.subscriptionStatus mustBe SubscriptionStatus.PastDue
+    }
+
+    "acknowledge with 200 when invoice.payment_failed's customer matches no surgeon" in {
+      val payload = invoicePaymentFailedPayload("cus_unknown_customer")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+    }
+
+    "cancel a surgeon's membership on customer.subscription.deleted" in {
+      val surgeonToken = signUp("webhook-surgeon4@example.com", "surgeon")
+      val surgeonId = surgeonProfileId(surgeonToken)
+      val surgeonRepository = app.injector.instanceOf[SurgeonRepository]
+      await(surgeonRepository.setStripeCustomerId(surgeonId, "cus_test_webhook4"))
+      await(surgeonRepository.setSubscriptionStatus(surgeonId, SubscriptionStatus.PastDue, Some(OffsetDateTime.now(ZoneOffset.UTC).plusMonths(1))))
+
+      val payload = subscriptionDeletedPayload("cus_test_webhook4")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+      val updated = await(surgeonRepository.findById(surgeonId)).get
+      updated.subscriptionStatus mustBe SubscriptionStatus.Canceled
+      updated.subscriptionRenewsAt mustBe None
+    }
+
+    "acknowledge with 200 when customer.subscription.deleted's customer matches no surgeon" in {
+      val payload = subscriptionDeletedPayload("cus_unknown_customer")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+    }
+
+    "sync a surgeon's status from customer.subscription.updated" in {
+      val surgeonToken = signUp("webhook-surgeon5@example.com", "surgeon")
+      val surgeonId = surgeonProfileId(surgeonToken)
+      val surgeonRepository = app.injector.instanceOf[SurgeonRepository]
+      await(surgeonRepository.setStripeCustomerId(surgeonId, "cus_test_webhook5"))
+      await(surgeonRepository.setSubscriptionStatus(surgeonId, SubscriptionStatus.PastDue, Some(OffsetDateTime.now(ZoneOffset.UTC).plusMonths(1))))
+
+      // A failed-payment retry succeeding transitions the subscription back
+      // to active — this is the case invoice.payment_failed/.deleted alone
+      // don't cover.
+      val payload = subscriptionUpdatedPayload("cus_test_webhook5", "active")
+      val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
+
+      status(res) mustBe OK
+      val updated = await(surgeonRepository.findById(surgeonId)).get
+      updated.subscriptionStatus mustBe SubscriptionStatus.Active
+    }
+
+    "acknowledge with 200 when customer.subscription.updated's customer matches no surgeon" in {
+      val payload = subscriptionUpdatedPayload("cus_unknown_customer", "active")
       val res = postWebhook(payload, Some(stripeSignatureHeader(payload)))
 
       status(res) mustBe OK

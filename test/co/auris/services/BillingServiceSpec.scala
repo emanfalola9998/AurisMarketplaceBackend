@@ -12,7 +12,7 @@ import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.AnyWordSpec
 import play.api.Configuration
 
-import java.time.OffsetDateTime
+import java.time.{OffsetDateTime, ZoneOffset}
 import java.util.UUID
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.Future
@@ -113,6 +113,107 @@ class BillingServiceSpec extends AnyWordSpec
       when(surgeonRepository.findByStripeCustomerId("cus_unknown")).thenReturn(Future.successful(None))
 
       service.confirmMembershipPayment("cus_unknown").futureValue
+
+      verify(surgeonRepository, never).setSubscriptionStatus(any[UUID], any[SubscriptionStatus], any[Option[OffsetDateTime]])
+    }
+  }
+
+  "markSubscriptionPastDue" should {
+    "flag the surgeon as past due, preserving their current renewal date" in {
+      val renewsAt = OffsetDateTime.now(ZoneOffset.UTC).plusMonths(2)
+      val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123"))
+        .copy(subscriptionRenewsAt = Some(renewsAt))
+      when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+      when(surgeonRepository.setSubscriptionStatus(surgeon.id, SubscriptionStatus.PastDue, Some(renewsAt)))
+        .thenReturn(Future.successful(1))
+
+      service.markSubscriptionPastDue("cus_123").futureValue
+
+      verify(surgeonRepository).setSubscriptionStatus(surgeon.id, SubscriptionStatus.PastDue, Some(renewsAt))
+    }
+
+    "does nothing when no surgeon matches the Stripe customer id" in {
+      when(surgeonRepository.findByStripeCustomerId("cus_unknown")).thenReturn(Future.successful(None))
+
+      service.markSubscriptionPastDue("cus_unknown").futureValue
+
+      verify(surgeonRepository, never).setSubscriptionStatus(any[UUID], any[SubscriptionStatus], any[Option[OffsetDateTime]])
+    }
+  }
+
+  "markSubscriptionCanceled" should {
+    "cancel the surgeon's subscription and clear their renewal date" in {
+      val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123"))
+      when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+      when(surgeonRepository.setSubscriptionStatus(surgeon.id, SubscriptionStatus.Canceled, None))
+        .thenReturn(Future.successful(1))
+
+      service.markSubscriptionCanceled("cus_123").futureValue
+
+      verify(surgeonRepository).setSubscriptionStatus(surgeon.id, SubscriptionStatus.Canceled, None)
+    }
+
+    "does nothing when no surgeon matches the Stripe customer id" in {
+      when(surgeonRepository.findByStripeCustomerId("cus_unknown")).thenReturn(Future.successful(None))
+
+      service.markSubscriptionCanceled("cus_unknown").futureValue
+
+      verify(surgeonRepository, never).setSubscriptionStatus(any[UUID], any[SubscriptionStatus], any[Option[OffsetDateTime]])
+    }
+  }
+
+  "syncSubscriptionStatus" should {
+    "map Stripe's active status to Active, preserving the renewal date" in {
+      val renewsAt = OffsetDateTime.now(ZoneOffset.UTC).plusMonths(3)
+      val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123")).copy(subscriptionRenewsAt = Some(renewsAt))
+      when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+      when(surgeonRepository.setSubscriptionStatus(surgeon.id, SubscriptionStatus.Active, Some(renewsAt)))
+        .thenReturn(Future.successful(1))
+
+      service.syncSubscriptionStatus("cus_123", "active").futureValue
+
+      verify(surgeonRepository).setSubscriptionStatus(surgeon.id, SubscriptionStatus.Active, Some(renewsAt))
+    }
+
+    List("past_due", "unpaid", "incomplete").foreach { stripeStatus =>
+      s"map Stripe's $stripeStatus status to PastDue" in {
+        val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123"))
+        when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+        when(surgeonRepository.setSubscriptionStatus(surgeon.id, SubscriptionStatus.PastDue, surgeon.subscriptionRenewsAt))
+          .thenReturn(Future.successful(1))
+
+        service.syncSubscriptionStatus("cus_123", stripeStatus).futureValue
+
+        verify(surgeonRepository).setSubscriptionStatus(surgeon.id, SubscriptionStatus.PastDue, surgeon.subscriptionRenewsAt)
+      }
+    }
+
+    List("canceled", "incomplete_expired").foreach { stripeStatus =>
+      s"map Stripe's $stripeStatus status to Canceled, clearing the renewal date" in {
+        val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123"))
+        when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+        when(surgeonRepository.setSubscriptionStatus(surgeon.id, SubscriptionStatus.Canceled, None))
+          .thenReturn(Future.successful(1))
+
+        service.syncSubscriptionStatus("cus_123", stripeStatus).futureValue
+
+        verify(surgeonRepository).setSubscriptionStatus(surgeon.id, SubscriptionStatus.Canceled, None)
+      }
+    }
+
+    "ignores unrecognized statuses rather than guessing" in {
+      val surgeon = Fixtures.surgeonProfile(stripeCustomerId = Some("cus_123"))
+      when(surgeonRepository.findByStripeCustomerId("cus_123")).thenReturn(Future.successful(Some(surgeon)))
+
+      service.syncSubscriptionStatus("cus_123", "trialing").futureValue
+
+      verify(surgeonRepository, never).setSubscriptionStatus(any[UUID], any[SubscriptionStatus], any[Option[OffsetDateTime]])
+    }
+
+    "does nothing when no surgeon matches the Stripe customer id" in {
+      when(surgeonRepository.findByStripeCustomerId("cus_unknown")).thenReturn(Future.successful(None))
+
+      service.syncSubscriptionStatus("cus_unknown", "active").futureValue
 
       verify(surgeonRepository, never).setSubscriptionStatus(any[UUID], any[SubscriptionStatus], any[Option[OffsetDateTime]])
     }

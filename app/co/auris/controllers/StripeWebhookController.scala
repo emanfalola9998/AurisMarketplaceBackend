@@ -11,7 +11,7 @@
 package co.auris.controllers
 
 import co.auris.services.{BillingService, BookingService, PaymentService}
-import com.stripe.model.{Invoice, PaymentIntent}
+import com.stripe.model.{Invoice, PaymentIntent, Subscription}
 import play.api.libs.json.Json
 import play.api.mvc._
 
@@ -55,6 +55,35 @@ class StripeWebhookController @Inject() (
           case None => Future.successful(Ok)
           case Some(invoice) =>
             billingService.confirmMembershipPayment(invoice.getCustomer).map(_ => Ok)
+        }
+
+      // Fires when a membership renewal (or the first payment) doesn't go
+      // through — Stripe keeps retrying on its own schedule, so this just
+      // flags the surgeon as past due rather than cancelling anything.
+      case Success(event) if event.getType == "invoice.payment_failed" =>
+        extractStripeObject[Invoice](event) match {
+          case None => Future.successful(Ok)
+          case Some(invoice) =>
+            billingService.markSubscriptionPastDue(invoice.getCustomer).map(_ => Ok)
+        }
+
+      // Fires when Stripe gives up retrying a past-due subscription, or it's
+      // cancelled directly — there's no future renewal to track any more.
+      case Success(event) if event.getType == "customer.subscription.deleted" =>
+        extractStripeObject[Subscription](event) match {
+          case None => Future.successful(Ok)
+          case Some(subscription) =>
+            billingService.markSubscriptionCanceled(subscription.getCustomer).map(_ => Ok)
+        }
+
+      // Fires on every subscription state change — the authoritative source
+      // for transitions invoice.payment_failed/.deleted don't cover on their
+      // own, e.g. a failed-payment retry succeeding.
+      case Success(event) if event.getType == "customer.subscription.updated" =>
+        extractStripeObject[Subscription](event) match {
+          case None => Future.successful(Ok)
+          case Some(subscription) =>
+            billingService.syncSubscriptionStatus(subscription.getCustomer, subscription.getStatus).map(_ => Ok)
         }
 
       case Success(_) =>

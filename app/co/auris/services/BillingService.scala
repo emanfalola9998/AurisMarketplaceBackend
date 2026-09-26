@@ -86,6 +86,48 @@ class BillingService @Inject() (
         } yield ()
     }
 
+  /** Called from the Stripe webhook on invoice.payment_failed: a renewal (or
+   *  the first payment) didn't go through. Stripe will keep retrying on its
+   *  own schedule, so this doesn't cancel anything — it just flags the
+   *  surgeon as past due until either a retry succeeds (confirmMembershipPayment)
+   *  or Stripe gives up (customer.subscription.deleted).
+   */
+  def markSubscriptionPastDue(customerId: String): Future[Unit] =
+    surgeonRepository.findByStripeCustomerId(customerId).flatMap {
+      case None    => Future.successful(())
+      case Some(s) => surgeonRepository.setSubscriptionStatus(s.id, SubscriptionStatus.PastDue, s.subscriptionRenewsAt).map(_ => ())
+    }
+
+  /** Called from the Stripe webhook on customer.subscription.deleted: Stripe
+   *  has given up retrying (or the subscription was cancelled directly) —
+   *  there's no future renewal to track any more.
+   */
+  def markSubscriptionCanceled(customerId: String): Future[Unit] =
+    surgeonRepository.findByStripeCustomerId(customerId).flatMap {
+      case None    => Future.successful(())
+      case Some(s) => surgeonRepository.setSubscriptionStatus(s.id, SubscriptionStatus.Canceled, None).map(_ => ())
+    }
+
+  /** Called from the Stripe webhook on customer.subscription.updated: syncs
+   *  our status from Stripe's own subscription.status, which is the
+   *  authoritative source for every state transition (a failed-payment
+   *  retry succeeding, a dunning cycle exhausting, reactivation, etc.) —
+   *  covers cases invoice.payment_failed / .deleted don't fire for on their
+   *  own. Unrecognized statuses (e.g. "trialing", not used by this app's
+   *  annual-membership-only billing) are left alone rather than guessed at.
+   */
+  def syncSubscriptionStatus(customerId: String, stripeStatus: String): Future[Unit] =
+    surgeonRepository.findByStripeCustomerId(customerId).flatMap {
+      case None => Future.successful(())
+      case Some(s) =>
+        stripeStatus match {
+          case "active"                        => surgeonRepository.setSubscriptionStatus(s.id, SubscriptionStatus.Active, s.subscriptionRenewsAt).map(_ => ())
+          case "past_due" | "unpaid" | "incomplete" => surgeonRepository.setSubscriptionStatus(s.id, SubscriptionStatus.PastDue, s.subscriptionRenewsAt).map(_ => ())
+          case "canceled" | "incomplete_expired"    => surgeonRepository.setSubscriptionStatus(s.id, SubscriptionStatus.Canceled, None).map(_ => ())
+          case _                               => Future.successful(())
+        }
+    }
+
   /** Records Auris's 1% cut of a paid booking. Idempotent — safe to call
    *  again for the same booking (e.g. on a webhook redelivery).
    */
