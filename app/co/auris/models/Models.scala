@@ -426,6 +426,9 @@ object SignInRequest { implicit val reads: Reads[SignInRequest] = Json.reads[Sig
 case class SignUpRequest(email: String, password: String, role: UserRole)
 object SignUpRequest { implicit val reads: Reads[SignUpRequest] = Json.reads[SignUpRequest] }
 
+case class ContactRequest(name: String, email: String, subject: Option[String], message: String)
+object ContactRequest { implicit val reads: Reads[ContactRequest] = Json.reads[ContactRequest] }
+
 case class TokenResponse(
                           accessToken:  String,
                           refreshToken: String,

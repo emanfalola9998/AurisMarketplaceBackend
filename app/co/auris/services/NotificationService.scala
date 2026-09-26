@@ -21,10 +21,11 @@ class NotificationService @Inject() (
                                       config:       Configuration
                                     )(implicit ec: ExecutionContext) {
 
-  private val fromAddress = config.get[String]("auris.email.fromAddress")
-  private val fromName    = config.get[String]("auris.email.fromName")
-  private val from        = s"$fromName <$fromAddress>"
-  private val frontendUrl = config.get[String]("auris.frontendUrl")
+  private val fromAddress   = config.get[String]("auris.email.fromAddress")
+  private val fromName      = config.get[String]("auris.email.fromName")
+  private val from          = s"$fromName <$fromAddress>"
+  private val frontendUrl   = config.get[String]("auris.frontendUrl")
+  private val supportEmail  = config.get[String]("auris.email.supportEmail")
 
   private def send(to: String, subject: String, bodyHtml: String): Future[Unit] =
     Future(mailerClient.send(Email(subject = subject, from = from, to = Seq(to), bodyHtml = Some(bodyHtml))))
@@ -114,5 +115,21 @@ class NotificationService @Inject() (
       patientEmail,
       "Your confirmed enquiry was cancelled",
       "<p>The surgeon has cancelled your confirmed consultation enquiry. Sign in to your Auris dashboard for details.</p>"
+    )
+
+  // Escapes user-submitted text before it goes into an HTML email body —
+  // unlike every other message here, a contact-form submission is arbitrary
+  // input from an unauthenticated visitor.
+  private def escapeHtml(s: String): String =
+    s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+      .replace("\"", "&quot;").replace("'", "&#39;")
+
+  def sendContactMessage(name: String, fromEmail: String, subject: Option[String], message: String): Future[Unit] =
+    send(
+      supportEmail,
+      subject.map(s => s"Contact form: $s").getOrElse("New contact form submission"),
+      s"""<p><strong>From:</strong> ${escapeHtml(name)} (${escapeHtml(fromEmail)})</p>
+         |<p><strong>Message:</strong></p>
+         |<p>${escapeHtml(message).replace("\n", "<br/>")}</p>""".stripMargin
     )
 }

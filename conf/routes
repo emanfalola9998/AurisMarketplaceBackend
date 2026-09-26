@@ -99,6 +99,11 @@ PUT     /api/admin/platform-fees/:id/mark-paid      co.auris.controllers.Billing
 
 GET     /uploads/*file                  co.auris.controllers.UploadsController.serve(file: String)
 
+# ─── Contact ──────────────────────────────────────────────────────────────────
+# Unauthenticated — the public marketing site's contact form.
+
+POST    /api/contact              co.auris.controllers.ContactController.submit
+
 # ─── Health check ─────────────────────────────────────────────────────────────
 
 GET     /api/health                     co.auris.controllers.HealthController.check
