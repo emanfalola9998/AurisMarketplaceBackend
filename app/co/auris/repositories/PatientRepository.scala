@@ -134,13 +134,6 @@ class PatientRepository @Inject() (
         .filter(s => s.patientId === patientId && s.surgeonId === surgeonId)
         .delete
     ).map(_ => ())
-
-  def isSurgeonSaved(patientId: UUID, surgeonId: UUID): Future[Boolean] =
-    db.run(
-      SavedSurgeons
-        .filter(s => s.patientId === patientId && s.surgeonId === surgeonId)
-        .exists.result
-    )
 }
 
 

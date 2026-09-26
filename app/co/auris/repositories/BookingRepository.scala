@@ -293,9 +293,4 @@ class BookingRepository @Inject() (
 
   def reviewExistsForBooking(bookingId: UUID): Future[Boolean] =
     db.run(Reviews.filter(_.bookingId === bookingId).exists.result)
-
-  def bookingBelongsToPatient(bookingId: UUID, patientId: UUID): Future[Boolean] =
-    db.run(
-      Bookings.filter(b => b.id === bookingId && b.patientId === patientId).exists.result
-    )
 }

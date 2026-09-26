@@ -33,11 +33,6 @@ class UserRepository @Inject() (
   def findByEmail(email: String): Future[Option[User]] =
     db.run(Users.filter(_.email === email.toLowerCase.trim).result.headOption)
 
-  def findByIdAndRole(id: UUID, role: UserRole): Future[Option[User]] =
-    db.run(
-      Users.filter(u => u.id === id && u.role === role).result.headOption
-    )
-
   def create(
               email:        String,
               passwordHash: String,
