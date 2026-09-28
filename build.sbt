@@ -69,6 +69,9 @@ lazy val root = (project in file("."))
 
       // Stripe — payment processing
       "com.stripe"    %  "stripe-java"           % "33.1.1",
+
+      // AWS S3 — file storage (auris.storage.provider = "s3")
+      "software.amazon.awssdk" %  "s3"           % "2.28.8",
     ),
 
     // ── Routes ──────────────────────────────────────────────────────────────

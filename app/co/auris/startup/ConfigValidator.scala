@@ -56,5 +56,8 @@ class ConfigValidator @Inject() (
     if (config.get[Boolean]("play.mailer.mock")) {
       logger.warn("play.mailer.mock is true in production — transactional emails are being logged, not sent. Set MAILER_MOCK=false once real SMTP credentials are configured.")
     }
+    if (config.get[String]("auris.storage.provider") == "s3" && config.getOptional[String]("auris.storage.s3Bucket").forall(_.isEmpty)) {
+      logger.warn("auris.storage.provider is \"s3\" but AWS_S3_BUCKET is not set — file uploads will fail until it's configured.")
+    }
   }
 }

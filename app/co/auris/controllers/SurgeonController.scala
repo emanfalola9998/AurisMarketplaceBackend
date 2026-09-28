@@ -214,6 +214,8 @@ class SurgeonController @Inject() (
                 Future.successful(BadRequest(apiError("UNSUPPORTED_TYPE", "File type not allowed.")))
               case Left(StorageError.FileTooLarge) =>
                 Future.successful(BadRequest(apiError("FILE_TOO_LARGE", "File exceeds the maximum allowed size.")))
+              case Left(StorageError.S3NotConfigured) =>
+                Future.successful(InternalServerError(apiError("INTERNAL_ERROR", "File storage is not configured correctly.")))
               case Right(avatarUrl) =>
                 surgeonRepository.findByUserId(request.userId).flatMap {
                   case None =>
