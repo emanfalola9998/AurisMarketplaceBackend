@@ -90,6 +90,7 @@ PUT     /api/admin/applications/:id/approve         co.auris.controllers.AdminCo
 PUT     /api/admin/applications/:id/reject          co.auris.controllers.AdminController.rejectApplication(id: java.util.UUID)
 PUT     /api/admin/applications/:id/request-info    co.auris.controllers.AdminController.requestMoreInfo(id: java.util.UUID)
 GET     /api/admin/surgeons                         co.auris.controllers.AdminController.listActiveSurgeons
+GET     /api/admin/surgeons/:id/history             co.auris.controllers.AdminController.surgeonHistory(id: java.util.UUID)
 PUT     /api/admin/surgeons/:id/suspend             co.auris.controllers.AdminController.suspendSurgeon(id: java.util.UUID)
 GET     /api/admin/analytics                        co.auris.controllers.AdminController.analytics
 GET     /api/admin/platform-fees                    co.auris.controllers.BillingController.listPlatformFees

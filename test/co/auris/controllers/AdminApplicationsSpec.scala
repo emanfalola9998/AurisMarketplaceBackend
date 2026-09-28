@@ -330,4 +330,67 @@ class AdminApplicationsSpec extends AnyWordSpec with Matchers with PlayIntegrati
       status(res) mustBe FORBIDDEN
     }
   }
+
+  "GET /api/admin/surgeons/:id/history" should {
+    "includes a history entry once the surgeon has been suspended, with the admin's email" in {
+      val adminEmail = "apps-surghist-admin1@example.com"
+      val adminToken = signUpAdminAndSignIn(adminEmail)
+      val surgeonToken = signUp("apps-surghist-surgeon1@example.com", "surgeon")
+      val appId = submitApplication(surgeonToken)
+      status(route(app, FakeRequest(PUT, s"/api/admin/applications/$appId/approve")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")
+        .withJsonBody(Json.obj())).get) mustBe OK
+      val dashboard = route(app, FakeRequest(GET, "/api/surgeons/dashboard")
+        .withHeaders("Authorization" -> s"Bearer $surgeonToken")).get
+      val surgeonId = UUID.fromString((contentAsJson(dashboard) \ "id").as[String])
+
+      status(route(app, FakeRequest(PUT, s"/api/admin/surgeons/$surgeonId/suspend")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")
+        .withJsonBody(Json.obj())).get) mustBe OK
+
+      val res = route(app, FakeRequest(GET, s"/api/admin/surgeons/$surgeonId/history")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")).get
+
+      status(res) mustBe OK
+      val history = (contentAsJson(res) \ "history").as[List[play.api.libs.json.JsObject]]
+      history must have size 1
+      (history.head \ "action").as[String] mustBe "surgeon_suspended"
+      (history.head \ "actorEmail").as[String] mustBe adminEmail
+    }
+
+    "returns an empty history for a surgeon that's never been suspended" in {
+      val adminToken = signUpAdminAndSignIn("apps-surghist-admin2@example.com")
+      val surgeonToken = signUp("apps-surghist-surgeon2@example.com", "surgeon")
+      val dashboard = route(app, FakeRequest(GET, "/api/surgeons/dashboard")
+        .withHeaders("Authorization" -> s"Bearer $surgeonToken")).get
+      val surgeonId = UUID.fromString((contentAsJson(dashboard) \ "id").as[String])
+
+      val res = route(app, FakeRequest(GET, s"/api/admin/surgeons/$surgeonId/history")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")).get
+
+      status(res) mustBe OK
+      (contentAsJson(res) \ "history").as[List[play.api.libs.json.JsObject]] mustBe empty
+    }
+
+    "return 404 for a surgeon that doesn't exist" in {
+      val adminToken = signUpAdminAndSignIn("apps-surghist-admin3@example.com")
+
+      val res = route(app, FakeRequest(GET, s"/api/admin/surgeons/${UUID.randomUUID()}/history")
+        .withHeaders("Authorization" -> s"Bearer $adminToken")).get
+
+      status(res) mustBe NOT_FOUND
+    }
+
+    "reject a non-admin" in {
+      val surgeonToken = signUp("apps-surghist-surgeon3@example.com", "surgeon")
+      val dashboard = route(app, FakeRequest(GET, "/api/surgeons/dashboard")
+        .withHeaders("Authorization" -> s"Bearer $surgeonToken")).get
+      val surgeonId = UUID.fromString((contentAsJson(dashboard) \ "id").as[String])
+
+      val res = route(app, FakeRequest(GET, s"/api/admin/surgeons/$surgeonId/history")
+        .withHeaders("Authorization" -> s"Bearer $surgeonToken")).get
+
+      status(res) mustBe FORBIDDEN
+    }
+  }
 }

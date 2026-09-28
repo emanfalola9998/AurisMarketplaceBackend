@@ -162,6 +162,18 @@ class AdminController @Inject() (
     }
   }
 
+  // ─── GET /api/admin/surgeons/:id/history ──────────────────────────────────
+
+  def surgeonHistory(id: UUID): Action[AnyContent] = authAction.async { implicit request =>
+    request.requireAdmin {
+      surgeonRepository.findById(id).flatMap {
+        case None => Future.successful(NotFound(apiError("NOT_FOUND", "Surgeon not found.")))
+        case Some(_) =>
+          historyFor("surgeon_profile", id).map(history => Ok(Json.obj("history" -> history)))
+      }
+    }
+  }
+
   // ─── PUT /api/admin/surgeons/:id/suspend ─────────────────────────────────
 
   def suspendSurgeon(id: UUID): Action[JsValue] = authAction(parse.json).async { implicit request =>
