@@ -26,6 +26,16 @@ object BookingError {
 
 final case class BookingWithPayment(booking: Booking, stripeClientSecret: String, depositAmount: BigDecimal)
 
+/** Separate from BookingError since BookingController's existing matches on
+ *  BookingError are non-exhaustive and -Xfatal-warnings would turn adding a
+ *  case there into a build break at every one of those call sites. */
+sealed trait ConfirmPaymentError
+object ConfirmPaymentError {
+  case object NotFound            extends ConfirmPaymentError
+  case object Forbidden           extends ConfirmPaymentError
+  case object PaymentNotSucceeded extends ConfirmPaymentError
+}
+
 object BookingService {
   // Patients pay this fraction of the consultation fee up front through Stripe;
   // the remainder is collected by the practice at the appointment.
@@ -321,6 +331,43 @@ class BookingService @Inject() (
           }
         }
     }
+
+  /** Called synchronously by the client right after Stripe.js confirms the
+   *  PaymentIntent, as a fallback for cases where the async webhook is
+   *  delayed or never arrives (tab closed, network drop, etc). Never trusts
+   *  the client's own claim of success — re-checks the PaymentIntent against
+   *  Stripe directly, and that its metadata ties it to this exact booking,
+   *  before delegating to the same idempotent confirmBookingPayment the
+   *  webhook uses.
+   */
+  def confirmPaymentIfSucceeded(
+                                 patientUserId:    UUID,
+                                 bookingId:        UUID,
+                                 paymentIntentId:  String
+                               ): Future[Either[ConfirmPaymentError, Booking]] =
+    for {
+      patientOpt <- patientRepository.findByUserId(patientUserId)
+      bookingOpt <- bookingRepository.findBookingById(bookingId)
+      result <- (patientOpt, bookingOpt) match {
+        case (None, _) => Future.successful(Left(ConfirmPaymentError.Forbidden))
+        case (_, None) => Future.successful(Left(ConfirmPaymentError.NotFound))
+        case (Some(p), Some(b)) if p.id != b.patientId =>
+          Future.successful(Left(ConfirmPaymentError.Forbidden))
+        case (_, Some(b)) =>
+          paymentService.retrievePaymentIntent(paymentIntentId).flatMap { intent =>
+            val succeeded     = intent.getStatus == "succeeded"
+            val matchesBooking = intent.getMetadata.get("bookingId") == b.id.toString
+            if (succeeded && matchesBooking) {
+              confirmBookingPayment(paymentIntentId, b.id).map {
+                case Left(_)        => Left(ConfirmPaymentError.NotFound)
+                case Right(updated) => Right(updated)
+              }
+            } else {
+              Future.successful(Left(ConfirmPaymentError.PaymentNotSucceeded))
+            }
+          }
+      }
+    } yield result
 
   def listBookings(userId: UUID, role: UserRole, status: Option[BookingStatus]): Future[List[Booking]] =
     role match {

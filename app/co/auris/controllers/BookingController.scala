@@ -5,7 +5,7 @@ package co.auris.controllers
 import co.auris.actions.{JwtAuthAction, RateLimitAction}
 import co.auris.models._
 import co.auris.repositories.PatientRepository
-import co.auris.services.{BookingError, BookingService, BookingWithPayment}
+import co.auris.services.{BookingError, BookingService, BookingWithPayment, ConfirmPaymentError}
 import play.api.libs.json._
 import play.api.mvc._
 
@@ -232,6 +232,31 @@ class BookingController @Inject() (
                 "stripeClientSecret" -> clientSecret,
                 "depositAmount"      -> depositAmount
               ))
+          }
+      }
+    }
+  }
+
+  // ─── PUT /api/bookings/:id/confirm-payment ───────────────────────────────
+  // Called by the client right after Stripe.js confirms payment, as a
+  // synchronous fallback for the async payment_intent.succeeded webhook.
+
+  def confirmPayment(id: UUID): Action[JsValue] =
+    (Action(parse.json) andThen rateLimitAction("bookingConfirmPayment") andThen authAction).async { implicit request =>
+    request.requirePatient {
+      (request.body \ "paymentIntentId").asOpt[String] match {
+        case None =>
+          Future.successful(BadRequest(apiError("BAD_REQUEST", "paymentIntentId is required.")))
+        case Some(paymentIntentId) =>
+          bookingService.confirmPaymentIfSucceeded(request.userId, id, paymentIntentId).map {
+            case Left(ConfirmPaymentError.NotFound) =>
+              NotFound(apiError("NOT_FOUND", "Booking not found."))
+            case Left(ConfirmPaymentError.Forbidden) =>
+              Forbidden(apiError("FORBIDDEN", "Access denied."))
+            case Left(ConfirmPaymentError.PaymentNotSucceeded) =>
+              Conflict(apiError("PAYMENT_NOT_SUCCEEDED", "This payment has not succeeded for this booking."))
+            case Right(booking) =>
+              Ok(Json.toJson(booking))
           }
       }
     }

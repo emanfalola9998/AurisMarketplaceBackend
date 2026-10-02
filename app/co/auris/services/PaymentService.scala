@@ -6,7 +6,7 @@
 package co.auris.services
 
 import com.stripe.Stripe
-import com.stripe.model.{Customer, Event, Product, Subscription}
+import com.stripe.model.{Customer, Event, PaymentIntent, Product, Subscription}
 import com.stripe.net.{RequestOptions, Webhook}
 import com.stripe.param.{CustomerCreateParams, PaymentIntentCreateParams, ProductCreateParams, SubscriptionCreateParams}
 import play.api.Configuration
@@ -53,6 +53,15 @@ class PaymentService @Inject() (config: Configuration)(implicit ec: ExecutionCon
 
   def verifyWebhookSignature(payload: String, sigHeader: String): Try[Event] =
     Try(Webhook.constructEvent(payload, sigHeader, webhookSecret))
+
+  /** Used to verify a payment server-side right after the client confirms it
+   *  with Stripe.js — see BookingService.confirmPaymentIfSucceeded. Never
+   *  trust the client's own claim that a payment succeeded; Stripe's record
+   *  is the source of truth.
+   */
+  def retrievePaymentIntent(paymentIntentId: String): Future[PaymentIntent] = Future {
+    PaymentIntent.retrieve(paymentIntentId)
+  }
 
   // ─── Surgeon billing ─────────────────────────────────────────────────────
   // Surgeons pay Auris directly (no Stripe Connect) — a plain Customer +
