@@ -1,0 +1,54 @@
+# ─── render.yaml ───────────────────────────────────────────────────────────
+#
+# Render Blueprint — connect this repo at https://dashboard.render.com/blueprints
+# and Render reads this file to create the service. Env vars marked
+# `sync: false` are NOT set here (never commit real secrets) — Render will
+# prompt for each one once in its dashboard after the first deploy.
+#
+# The Postgres database itself stays on Neon, not Render — only DATABASE_URL/
+# DATABASE_USER/DATABASE_PASSWORD need to be pointed at it below.
+
+services:
+  - type: web
+    name: auris-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: PLAY_SECRET_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_USER
+        sync: false
+      - key: DATABASE_PASSWORD
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: MAILER_MOCK
+        value: "false"
+      - key: AWS_S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: EVOLUTIONS_AUTO_APPLY
+        value: "false"

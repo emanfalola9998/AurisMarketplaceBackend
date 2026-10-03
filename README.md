@@ -11,6 +11,51 @@ throughout that file (`PLAY_SECRET_KEY`, `JWT_SECRET`, `DATABASE_URL`,
 `STRIPE_SECRET_KEY`, etc.). `conf/application.dev.conf` (gitignored) is where
 local-only secrets belong instead.
 
+## Deployment
+
+Deploys to [Render](https://render.com) as a Docker web service — `Dockerfile`
+multi-stage builds the app with sbt and stages it (`sbt stage`) into a slim
+JRE runtime image, and `render.yaml` is a Render Blueprint that creates the
+service with the right build/health-check config pre-filled.
+
+1. Push this repo to GitHub, then at
+   [dashboard.render.com/blueprints](https://dashboard.render.com/blueprints)
+   connect it — Render reads `render.yaml` and creates the `auris-backend`
+   web service automatically.
+2. Every env var listed in `render.yaml` with `sync: false` has no value
+   checked into git on purpose — Render prompts for each one once, in its
+   dashboard, after the first deploy:
+   - `PLAY_SECRET_KEY`, `JWT_SECRET` — any random string meeting the length
+     noted in `application.conf`'s placeholders; generate with e.g.
+     `openssl rand -base64 48`.
+   - `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD` — a **production**
+     Postgres instance (a separate Neon project/branch from the dev one is
+     fine — the database itself doesn't live on Render).
+   - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — live-mode Stripe keys,
+     once the Stripe account is verified for live charges.
+   - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` — a real transactional-email
+     provider (the default `play.mailer.host` assumes SendGrid).
+   - `AWS_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` — see
+     *File storage* below for the bucket setup this also requires.
+   - `FRONTEND_URL` — the deployed frontend's URL, used to build links in
+     transactional emails.
+   - `ALLOWED_HOSTS`, `ALLOWED_ORIGINS` — the real production domain(s); the
+     committed defaults (`auris.co`) only work if that's the actual domain.
+3. `ConfigValidator` (`app/co/auris/startup/ConfigValidator.scala`) refuses
+   to boot in production if `PLAY_SECRET_KEY`/`JWT_SECRET` are still the
+   committed placeholders, and logs warnings for the Stripe/mailer/S3 ones —
+   check the Render logs after first deploy for anything still misconfigured.
+4. **First deploy only:** `render.yaml` sets `EVOLUTIONS_AUTO_APPLY=false`
+   (the safe default for every deploy *after* the first, so a schema change
+   never applies itself unreviewed) — but that also means a brand-new,
+   empty production database has no tables yet, and every request will fail
+   until the schema exists. Either flip `EVOLUTIONS_AUTO_APPLY` to `true` in
+   the Render dashboard for the first deploy only (safe here specifically
+   because the database is empty, so there's nothing an auto-applied
+   evolution could get wrong), then back to `false` once it's up — or apply
+   `conf/evolutions/default/*.sql` to the production database manually
+   first, by hand or via `psql`, before the first deploy.
+
 ## File storage (`auris.storage`)
 
 Surgeon avatars and portfolio photos are handled by `StorageService`
