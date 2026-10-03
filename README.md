@@ -113,6 +113,30 @@ confirmed against `conf/application.dev.conf` and the frontend's
    as the first end-to-end live test rather than assuming live mode works
    just because test mode did.
 
+## Transactional email (SMTP)
+
+`play.mailer.mock = true` everywhere today — every email `NotificationService`
+(`app/co/auris/services/NotificationService.scala`) sends (verification,
+password reset, booking confirmations, enquiry notifications) is logged, not
+actually delivered. Going live needs:
+
+1. **A real SMTP provider account.** `play.mailer.host` defaults to
+   `smtp.sendgrid.net`, so SendGrid is the path of least config change, but
+   Play Mailer works with any SMTP provider — swap the host if you'd rather
+   use something else.
+2. **Verify the sending domain** (`auris.email.fromAddress` is
+   `noreply@auris.co`) with whichever provider you pick — this means adding
+   SPF/DKIM DNS records for `auris.co` in the provider's dashboard. Sending
+   from an unverified domain gets emails marked as spam or rejected outright
+   by most receiving mail servers, regardless of how correct the SMTP
+   credentials are. This assumes `auris.co` is an owned, DNS-controllable
+   domain — if it isn't yet, that's a prerequisite to this step, not
+   something `NotificationService` can work around.
+3. Set `SMTP_USER` (SendGrid's convention: the literal string `apikey`, not
+   an actual username) and `SMTP_PASSWORD` (the real API key) in Render.
+4. `render.yaml` already sets `MAILER_MOCK=false` — once real credentials
+   are in place, that's the only switch needed; no code change.
+
 ## File storage (`auris.storage`)
 
 Surgeon avatars and portfolio photos are handled by `StorageService`
@@ -137,6 +161,36 @@ AWS credentials are resolved via the AWS SDK's normal default chain (env
 vars, `~/.aws/credentials`, or an instance/task IAM role) — nothing
 Auris-specific to configure beyond having *some* valid credentials available
 to the process.
+
+### Production setup
+
+The provider was verified earlier against a real but disposable test
+bucket — production needs its own **permanent** bucket (a fresh
+`aws s3 mb`, not a renamed/reused version of the test one) plus its own
+IAM credentials:
+
+1. Create the bucket and set `AWS_S3_BUCKET`/`auris.storage.s3Region` (and
+   `auris.storage.provider = "s3"`, which has no env-var hook — see above)
+   to match.
+2. Create an IAM user (or role, if Render supported instance roles — it
+   doesn't, so this needs a real access key pair) scoped to **only**
+   `s3:PutObject` on that one bucket — `StorageService.storeToS3` never
+   calls `GetObject`, `ListBucket`, or `DeleteObject`; reads happen over
+   the plain public HTTPS URL, not through the SDK, so the credentials the
+   app itself holds don't need any read/list/delete permission at all:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": "s3:PutObject",
+       "Resource": "arn:aws:s3:::<your-bucket>/*"
+     }]
+   }
+   ```
+3. Set `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` in Render to that IAM
+   user's key pair — picked up automatically by the AWS SDK's default
+   credential chain, no code change needed.
 
 ### Required bucket setup for the `s3` provider
 
