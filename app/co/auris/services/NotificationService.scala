@@ -4,6 +4,11 @@
 // logged rather than actually dispatched until real SMTP creds are set.
 // Failures here are swallowed by callers — a dropped notification should
 // never fail the request that triggered it.
+//
+// auris.features.emailNotifications is a separate kill switch from
+// play.mailer.mock: mock controls whether a "send" actually hits SMTP,
+// while this flag controls whether NotificationService attempts a send at
+// all (e.g. to pause all outbound email without touching mailer config).
 
 package co.auris.services
 
@@ -26,10 +31,14 @@ class NotificationService @Inject() (
   private val from          = s"$fromName <$fromAddress>"
   private val frontendUrl   = config.get[String]("auris.frontendUrl")
   private val supportEmail  = config.get[String]("auris.email.supportEmail")
+  private val enabled       = config.get[Boolean]("auris.features.emailNotifications")
 
   private def send(to: String, subject: String, bodyHtml: String): Future[Unit] =
-    Future(mailerClient.send(Email(subject = subject, from = from, to = Seq(to), bodyHtml = Some(bodyHtml))))
-      .map(_ => ())
+    if (enabled)
+      Future(mailerClient.send(Email(subject = subject, from = from, to = Seq(to), bodyHtml = Some(bodyHtml))))
+        .map(_ => ())
+    else
+      Future.successful(())
 
   def sendEmailVerification(toEmail: String, token: String): Future[Unit] = {
     val link = s"$frontendUrl/auth?mode=verify-email&token=$token"
