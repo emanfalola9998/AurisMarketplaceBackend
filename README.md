@@ -76,6 +76,43 @@ service with the right build/health-check config pre-filled.
    actual evolutions end to end before being added here — see that script's
    header comment for exactly what it does and why.
 
+## Stripe (live mode)
+
+Only test-mode keys (`sk_test_...`/`pk_test_...`) have ever been used,
+confirmed against `conf/application.dev.conf` and the frontend's
+`.env.local`. Going live needs:
+
+1. **Activate the Stripe account for live charges** — in the Stripe
+   dashboard, this means completing business verification (legal entity,
+   bank account for payouts, etc). This step is entirely on Stripe's side
+   and can take a few days; worth starting before everything else is ready.
+2. Once activated, switch the dashboard to **Live mode** (top-left toggle)
+   and copy the live secret key into Render's `STRIPE_SECRET_KEY`.
+3. **Register the live webhook endpoint** — Developers → Webhooks → Add
+   endpoint, URL `https://<your-render-url>/api/stripe/webhook` (only
+   exists once the backend is deployed, so this step comes after that).
+   `StripeWebhookController.handle` (`app/co/auris/controllers/StripeWebhookController.scala`)
+   only acts on 5 event types — select exactly these, nothing more is read:
+   - `payment_intent.succeeded`
+   - `invoice.paid`
+   - `invoice.payment_failed`
+   - `customer.subscription.deleted`
+   - `customer.subscription.updated`
+
+   Stripe shows the endpoint's signing secret once it's created — that's
+   `STRIPE_WEBHOOK_SECRET` (a **live**-mode endpoint has its own secret,
+   separate from the test-mode one already in use locally).
+4. In the frontend, set `VITE_STRIPE_PUBLISHABLE_KEY` to the matching
+   **live** publishable key (`pk_live_...`) in Vercel's env vars — test and
+   live mode must match on both the frontend publishable key and this
+   backend's secret key, or `stripe.confirmPayment()` fails with a
+   key-mismatch error (noted in the frontend repo's README too).
+5. Test-mode's known-safe card number (`4242 4242 4242 4242`) does **not**
+   work in live mode for obvious reasons — the first live transaction has
+   to be a real card making a real charge. Consider a small real booking
+   as the first end-to-end live test rather than assuming live mode works
+   just because test mode did.
+
 ## File storage (`auris.storage`)
 
 Surgeon avatars and portfolio photos are handled by `StorageService`
