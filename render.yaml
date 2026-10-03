@@ -47,9 +47,12 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
-      - key: ALLOWED_HOSTS
-        sync: false
-      - key: ALLOWED_ORIGINS
-        sync: false
       - key: EVOLUTIONS_AUTO_APPLY
         value: "false"
+      # No ALLOWED_HOSTS / ALLOWED_ORIGINS here on purpose — both are
+      # array-typed config keys, and Typesafe Config substitutes env vars
+      # as plain strings, never as a list, so setting either one here
+      # would crash the app at boot ("has type STRING rather than LIST").
+      # The Render hostname (.onrender.com) is hardcoded into
+      # application.conf's allowed-hosts list instead; the real frontend
+      # origin needs to be added there directly too, once known.

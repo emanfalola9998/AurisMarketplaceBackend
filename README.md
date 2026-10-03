@@ -49,8 +49,17 @@ service with the right build/health-check config pre-filled.
      *File storage* below for the bucket setup this also requires.
    - `FRONTEND_URL` — the deployed frontend's URL, used to build links in
      transactional emails.
-   - `ALLOWED_HOSTS`, `ALLOWED_ORIGINS` — the real production domain(s); the
-     committed defaults (`auris.co`) only work if that's the actual domain.
+   - There is **no** `ALLOWED_HOSTS`/`ALLOWED_ORIGINS` env var — both are
+     array-typed config keys, and Typesafe Config substitutes environment
+     variables as plain strings, never as a list, so setting either one
+     crashes the app at boot (`ConfigException$WrongType: ... has type
+     STRING rather than LIST`), confirmed directly against a local build.
+     `play.filters.hosts.allowed` already hardcodes `.onrender.com`
+     (`conf/application.conf`) so Render's own health checks pass; once
+     the frontend has a real deployed origin, add it to
+     `play.filters.cors.allowedOrigins` directly and redeploy — CORS has
+     no wildcard-domain support, so this one needs the exact origin
+     either way, env var or not.
 3. `ConfigValidator` (`app/co/auris/startup/ConfigValidator.scala`) refuses
    to boot in production if `PLAY_SECRET_KEY`/`JWT_SECRET` are still the
    committed placeholders, and logs warnings for the Stripe/mailer/S3 ones —
