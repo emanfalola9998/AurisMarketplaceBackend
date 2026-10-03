@@ -13,6 +13,7 @@ services:
     name: auris-backend
     runtime: docker
     dockerfilePath: ./Dockerfile
+    region: frankfurt   # closest Render region to the Neon DB (eu-west-2, London)
     plan: free
     healthCheckPath: /api/health
     envVars:

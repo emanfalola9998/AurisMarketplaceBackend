@@ -29,8 +29,18 @@ service with the right build/health-check config pre-filled.
      noted in `application.conf`'s placeholders; generate with e.g.
      `openssl rand -base64 48`.
    - `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD` — a **production**
-     Postgres instance (a separate Neon project/branch from the dev one is
-     fine — the database itself doesn't live on Render).
+     Postgres instance, kept separate from the dev one. At
+     [console.neon.tech](https://console.neon.tech), create a new **project**
+     (not just a branch of the dev one — full isolation is worth it for
+     production) named e.g. `auris-production`, region **AWS eu-west-2
+     (London)** to match both the dev DB and Render's `frankfurt` region in
+     `render.yaml` above (minimizes latency; a US-region DB behind an
+     EU-region app adds real round-trip time to every request). Neon shows a
+     connection string immediately — split it into the three env vars:
+     `DATABASE_URL` is `jdbc:postgresql://<host>/<dbname>?sslmode=require`
+     (note the `jdbc:` prefix application.conf expects, which Neon's own
+     connection string doesn't include), `DATABASE_USER` and
+     `DATABASE_PASSWORD` are the corresponding parts of what Neon gave you.
    - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` — live-mode Stripe keys,
      once the Stripe account is verified for live charges.
    - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` — a real transactional-email
@@ -55,6 +65,16 @@ service with the right build/health-check config pre-filled.
    evolution could get wrong), then back to `false` once it's up — or apply
    `conf/evolutions/default/*.sql` to the production database manually
    first, by hand or via `psql`, before the first deploy.
+5. **Also first deploy only:** those same evolutions seed demo data meant
+   for local dev — 5 fake surgeons, fake patients, bookings, reviews — plus
+   a real admin account (`admin@auris.co`) with a password printed in
+   evolution `1.sql`'s own comment. Immediately after the schema is up, run
+   `scripts/production-first-deploy-cleanup.sql` (edit the placeholder
+   password in it first) against the production database to remove every
+   seeded row except that one admin account, with its password rotated to
+   something real. Verified against a throwaway local database running the
+   actual evolutions end to end before being added here — see that script's
+   header comment for exactly what it does and why.
 
 ## File storage (`auris.storage`)
 
